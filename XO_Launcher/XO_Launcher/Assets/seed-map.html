@@ -1,0 +1,1348 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    html, body { margin: 0; height: 100%; background: #111; overflow: hidden; font: 12px/1.4 "Microsoft YaHei UI", sans-serif; color: #ddd; }
+    canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+    canvas.drag { cursor: grabbing; }
+    #hud {
+      position: absolute; left: 10px; top: 10px; padding: 7px 10px; border-radius: 8px;
+      background: rgba(17,17,17,.82); border: 1px solid #2a2a2a; pointer-events: none; min-width: 200px;
+    }
+    #hud b { color: #7CBD4B; }
+    #hud s { display: block; margin-top: 4px; color: #b8a05a; text-decoration: none; }
+    #tools { position: absolute; right: 10px; top: 10px; display: flex; gap: 6px; }
+    #tools button {
+      height: 26px; padding: 0 10px; border: 0; border-radius: 6px; cursor: pointer;
+      background: #2a2a2a; color: #eee; font: 12px "Microsoft YaHei UI", sans-serif;
+    }
+    #tools button:hover { background: #3a3a3a; }
+    #legend {
+      position: absolute; left: 10px; bottom: 10px; padding: 8px 10px; border-radius: 8px;
+      background: rgba(17,17,17,.9); border: 1px solid #2a2a2a; max-height: 56%; overflow: auto;
+      display: none; columns: 2; column-gap: 16px; max-width: 74%;
+    }
+    #legend h4 { margin: 2px 0 5px; font-size: 11px; color: #8a8a8a; font-weight: 400; column-span: all; }
+    #legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+    #legend div { break-inside: avoid; margin: 2px 0; }
+    #empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #888; text-align: center; }
+  </style>
+</head>
+<body>
+  <canvas id="map"></canvas>
+  <div id="empty">填写种子后点「查看地图」</div>
+  <div id="hud" style="display:none"></div>
+  <div id="tools" style="display:none">
+    <button id="origin" title="回到 (0, 0)">原点</button>
+    <button id="toggleLegend" title="展开全部群系与颜色">图例</button>
+  </div>
+  <div id="legend"></div>
+  <script>
+  (function () {
+    "use strict";
+
+    /* =====================================================================
+     * v5 —— 按 MC 真实生成模型重做
+     *
+     * 一、为什么 v3/v4 的地图「不对」
+     *   v3 把主世界的最大特征尺度定在 180 格（INV_180 就是按这个来的），5 个
+     *   八度全部叠在 180 格以内。真实 MC 的 continentalness 最大尺度是
+     *   数千格——它才是「大陆 / 海洋」轮廓的来源。实测后果有两个：
+     *     · 缩到 1 像素 = 8 格以上时整屏只是 180 格的碎斑，看不出大陆；
+     *     · 缩到 24 格/像素以上时 180 格压到 8 像素以下，退化成硬噪点。
+     *   本次把通道尺度按真实量级重排（大陆度 3000 格、温度 1600 格、
+     *   湿度 1200 格、侵蚀度 800 格、奇异度 600 格、河流 360 格），
+     *   并把群系判定换成 MC 的「多噪声 + 气候表」结构。
+     *
+     * 二、判定结构与真实一致的部分
+     *   · 大陆度分档 → 深海 / 海洋 / 海岸 / 内陆；
+     *   · 温度 × 湿度 的 5×5 气候表（frozen/cold/temperate/warm/hot ×
+     *     arid/dry/neutral/wet/humid）给出基础群系；
+     *   · 高度层（低地 / 丘陵 / 山坡 / 山峰）再对基础群系做变种替换
+     *     （windswept_*、old_growth_*、bamboo_jungle、bamboo… ）；
+     *   · 河流走独立的窄带通道，与温度决定是河流还是冻河。
+     *   与真实不同的部分：噪声函数是自写的值噪声（不是 XORoshiro/Perlin），
+     *   气候表的格子边界是手工近似，所以同一个种子与游戏内结果不会逐格相同。
+     *   这是既有设计，不要为「凑准」去改分布。
+     *
+     * 三、群系覆盖
+     *   主世界 51 个地表群系（zh.minecraft.wiki 的完整列表里，除虚空与
+     *   繁茂洞穴 / 溶洞 / 深暗之域这三个纯地下群系之外的全部），下界 5 个，
+     *   末地 6 个（含虚空，用于表现外岛之间的空区）。地下群系不在地表图上
+     *   呈现，图例里有说明。
+     *
+     * 四、结构
+     *   按 wiki「World generation」的结构放置表实现 22 项：spacing /
+     *   separation / frequency / 所需群系都取自该表。要塞走官方同心环带，
+     *   末地折跃门由末地城派生。frequency < 1 的项（前哨 20%、埋藏宝藏 1%、
+     *   矿井 0.4%）不逐区块抽样，而是把候选网格粗化到 1/frequency 个区块后
+     *   每格取一个点——密度等价，但不会为了 0.4% 去遍历整个视野的每一个区块。
+     * ===================================================================== */
+
+    /* =====================================================================
+     * 性能设计（沿用 v2~v4）
+     * 1) 噪声内核纯 32 位整数（Int32 种子表 + Math.imul），无 BigInt。
+     * 2) 光栅随缩放自动降分辨率（见 rasterFactor），缩远时反而更快。
+     * 3) 复用 ImageData 缓冲，只在尺寸变化时分配。
+     * 4) 拖动 = 缓冲自位移 + 只补算新露出的 L 形条带，O(面积)→O(周长)。
+     * 5) 视角变化走分帧渐进渲染：先 step=4 粗行，空闲 220 ms 后精细收敛。
+     * 6) 群系索引 + Uint32 调色板，无逐像素对象分配 / 字符串比较。
+     * 7) 结构体查询带超集缓存（视野外扩 30%），标记按屏幕 Y 预排序，
+     *    叠加层按行条带二分定位而不是遍历全量。
+     * ===================================================================== */
+
+    /* ---------------------- 通用常量 ---------------------- */
+    var INV_180 = 1 / 180;      // 通道频率统一以 180 格波长 = 系数 1 为基准
+    var NOISE_GAIN = 3.2;       // 值噪声 fbm 实测 σ≈0.128，阈值按 [-1,1] 写，必须拉伸
+    var NETHER_GAIN = 2.1;
+    var END_GAIN = 2.4;
+
+    // 缩放档位表。必须用显式阶梯而不是「乘一个系数再取整」：后者会出现不动点
+    // （旧版 2→2.3→round→2 直接 return，缩放被锁死；v5 早期版在 1 处也踩了同一个坑，
+    // 因为 1~4 段取 0.5 档时 round(1.2*2)/2 === 1）。走阶梯表保证每一步都换档。
+    var SCALE_LADDER = [
+      0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.6, 0.7, 0.8, 0.9, 1,
+      1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8, 10, 12, 14, 17, 20, 24, 29, 35, 42, 50, 60, 64
+    ];
+    var MIN_SCALE = SCALE_LADDER[0];                              // 1 像素 = 0.25 格
+    var MAX_SCALE = SCALE_LADDER[SCALE_LADDER.length - 1];
+    var ZOOM_STEP = 1.2;
+
+    function ladderIndex(v) {
+      var best = 0, bestD = Infinity;
+      for (var i = 0; i < SCALE_LADDER.length; i++) {
+        var d = Math.abs(SCALE_LADDER[i] - v);
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      return best;
+    }
+    function snapScale(v) { return SCALE_LADDER[ladderIndex(v)]; }
+
+    var SHADE_LEVELS = 48;
+    var SHADE_MIN = 0.50;
+    var SHADE_MAX = 1.34;
+
+    var STRUCT_MIN_PX = 16;          // 结构在屏幕上的最小间距（像素）
+    var MAX_REGIONS_PER_TYPE = 90;   // 视口内单个结构类型的落地数量上限（抽稀第二道闸）
+
+    /* ---------------------- 端序 / 打包 ---------------------- */
+    var LITTLE_ENDIAN = (function () {
+      var probe = new Uint8Array(4);
+      new Uint32Array(probe.buffer)[0] = 0x01020304;
+      return probe[0] === 0x04;
+    })();
+
+    function packColor(r, g, b) {
+      return LITTLE_ENDIAN
+        ? (((255 << 24) | (b << 16) | (g << 8) | r) >>> 0)
+        : (((r << 24) | (g << 16) | (b << 8) | 255) >>> 0);
+    }
+    function clamp255(v) { v = Math.round(v); return v < 0 ? 0 : (v > 255 ? 255 : v); }
+    function hexChannels(hex) {
+      return [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
+    }
+
+    /* ---------------------- 噪声内核（纯 32 位整数） ---------------------- */
+    function hash2(x, z, s) {
+      var n = (Math.imul(x, 374761393) ^ Math.imul(z, 668265263) ^ s) | 0;
+      n = Math.imul(n ^ (n >>> 13), 1274126177);
+      return ((n ^ (n >>> 16)) >>> 0) * 2.3283064365386963e-10;
+    }
+
+    function valueNoise(x, z, s) {
+      var x0 = Math.floor(x), z0 = Math.floor(z);
+      var fx = x - x0, fz = z - z0;
+      var sx = fx * fx * (3 - 2 * fx), sz = fz * fz * (3 - 2 * fz);
+      var a = hash2(x0, z0, s), b = hash2(x0 + 1, z0, s);
+      var c = hash2(x0, z0 + 1, s), d = hash2(x0 + 1, z0 + 1, s);
+      return a + (b - a) * sx + (c - a) * sz + (a - b - c + d) * sx * sz;
+    }
+
+    function fbm(x, z, seeds, octaves) {
+      var v = 0, a = 1, f = 1, t = 0;
+      for (var i = 0; i < octaves; i++) {
+        v += valueNoise(x * f, z * f, seeds[i]) * a;
+        t += a; a *= 0.5; f *= 2;
+      }
+      return v / t;
+    }
+
+    var HI_MIX = 0x9E3779B1 | 0;
+
+    function buildOctaveSeeds(seed, channels) {
+      var lo = Number(seed & 0xffffffffn) | 0;
+      var hi = Number((seed >> 32n) & 0xffffffffn) | 0;
+      var S = {};
+      for (var c = 0; c < channels.length; c++) {
+        var ch = channels[c];
+        var base = ((lo + ch.salt) ^ Math.imul(hi, (HI_MIX + ch.salt) | 0)) | 0;
+        var arr = new Int32Array(ch.octaves);
+        for (var i = 0; i < ch.octaves; i++) arr[i] = (base + i * 1013) | 0;
+        S[ch.key] = arr;
+      }
+      return S;
+    }
+
+    /* ---------------------- JavaRandom ---------------------- */
+    var REGION_A = 341873128712n, REGION_B = 132897987541n;
+    var axCache = new Map(), bzCache = new Map();
+    function regionTerm(cache, value, coef) {
+      var v = cache.get(value);
+      if (v === undefined) { v = BigInt(value) * coef; cache.set(value, v); }
+      return v;
+    }
+
+    var LCG_MUL = 0x5DEECE66Dn, LCG_ADD = 0xBn;
+    var LCG_MASK = (1n << 48n) - 1n;
+    var LCG_SHIFT = (function () {
+      var t = new Array(49);
+      for (var i = 0; i <= 48; i++) t[i] = BigInt(48 - i);
+      return t;
+    })();
+
+    function JavaRandom(s) { this.s = (BigInt(s) ^ LCG_MUL) & LCG_MASK; }
+    JavaRandom.prototype.next = function (bits) {
+      this.s = (this.s * LCG_MUL + LCG_ADD) & LCG_MASK;
+      return Number(this.s >> LCG_SHIFT[bits]);
+    };
+    JavaRandom.prototype.nextInt = function (bound) {
+      if ((bound & -bound) === bound) return Number((BigInt(bound) * BigInt(this.next(31))) >> 31n);
+      var bits, val;
+      do { bits = this.next(31); val = bits % bound; } while (bits - val + (bound - 1) < 0);
+      return val;
+    };
+    var INV_31 = 1 / 2147483648;
+    JavaRandom.prototype.nextFloat01 = function () { return this.next(31) * INV_31; };
+
+    function weightedPick(rnd, weights) {
+      var total = 0, i;
+      for (i = 0; i < weights.length; i++) total += weights[i];
+      var r = rnd.nextInt(total);
+      for (i = 0; i < weights.length; i++) { r -= weights[i]; if (r < 0) return i; }
+      return weights.length - 1;
+    }
+
+    /* =====================================================================
+     * 群系表（ID 与名称取自 zh.minecraft.wiki「生物群系/ID」）
+     * 顺序即索引，不要随意调整顺序（会改变 Uint32 调色板的对应关系）。
+     * ===================================================================== */
+
+    var OVERWORLD_BIOMES = [
+      // 海洋 9
+      ["ocean", "海洋", "#3b6ea5"], ["deep_ocean", "深海", "#2a5480"],
+      ["warm_ocean", "暖水海洋", "#3fb5c8"], ["lukewarm_ocean", "温水海洋", "#3f8fb8"],
+      ["deep_lukewarm_ocean", "温水深海", "#356f96"], ["cold_ocean", "冷水海洋", "#3a6a96"],
+      ["deep_cold_ocean", "冷水深海", "#2c5075"], ["frozen_ocean", "冻洋", "#7aa0c4"],
+      ["deep_frozen_ocean", "冰冻深海", "#55708f"],
+      // 河流 2
+      ["river", "河流", "#4a7fb5"], ["frozen_river", "冻河", "#a8c8dc"],
+      // 海岸 3
+      ["beach", "沙滩", "#ded29a"], ["snowy_beach", "积雪沙滩", "#eceadf"], ["stony_shore", "石岸", "#8f8d86"],
+      // 平原 2
+      ["plains", "平原", "#8fbd5a"], ["sunflower_plains", "向日葵平原", "#b0d75a"],
+      // 森林 6
+      ["forest", "森林", "#5aa832"], ["flower_forest", "繁花森林", "#63b84a"], ["birch_forest", "桦木森林", "#87b05a"],
+      ["old_growth_birch_forest", "原始桦木森林", "#7ba84f"], ["dark_forest", "黑森林", "#3f5c2a"],
+      ["pale_garden", "苍白花园", "#b6b9a4"],
+      // 针叶林 4
+      ["taiga", "针叶林", "#5f7f42"], ["snowy_taiga", "积雪针叶林", "#82a08a"],
+      ["old_growth_pine_taiga", "原始松木针叶林", "#4e7038"], ["old_growth_spruce_taiga", "原始云杉针叶林", "#456a34"],
+      // 热带草原 3
+      ["savanna", "热带草原", "#c2b356"], ["savanna_plateau", "热带高原", "#cbbc63"],
+      ["windswept_savanna", "风袭热带草原", "#a8a44e"],
+      // 丛林 3
+      ["jungle", "丛林", "#2f8f2c"], ["sparse_jungle", "稀疏丛林", "#56a03a"], ["bamboo_jungle", "竹林", "#4aa53f"],
+      // 沙漠 1
+      ["desert", "沙漠", "#e5c882"],
+      // 恶地 3
+      ["badlands", "恶地", "#c4652c"], ["eroded_badlands", "风蚀恶地", "#a84a1e"], ["wooded_badlands", "疏林恶地", "#9c6b3c"],
+      // 沼泽 2
+      ["swamp", "沼泽", "#5b6b3a"], ["mangrove_swamp", "红树林沼泽", "#46603f"],
+      // 山地 / 山坡 10
+      ["windswept_hills", "风袭丘陵", "#93a08f"], ["windswept_gravelly_hills", "风袭沙砾丘陵", "#8e8e8e"],
+      ["windswept_forest", "风袭森林", "#6f9a56"], ["meadow", "草甸", "#86b95a"],
+      ["cherry_grove", "樱花树林", "#e8a8c8"], ["grove", "雪林", "#9fb9a0"],
+      ["snowy_slopes", "积雪山坡", "#d8e4e8"], ["frozen_peaks", "冰封山峰", "#eaf2f6"],
+      ["jagged_peaks", "尖峭山峰", "#dcdcdc"], ["stony_peaks", "裸岩山峰", "#a9a294"],
+      // 雪原 2
+      ["snowy_plains", "雪原", "#eceff0"], ["ice_spikes", "冰刺之地", "#c6ecff"],
+      // 蘑菇 1
+      ["mushroom_fields", "蘑菇岛", "#b45aa8"]
+    ];
+
+    var NETHER_BIOMES = [
+      ["nether_wastes", "下界荒地", "#9b3a34"],
+      ["soul_sand_valley", "灵魂沙峡谷", "#5d4a35"],
+      ["crimson_forest", "绯红森林", "#a83348"],
+      ["warped_forest", "诡异森林", "#2f9b86"],
+      ["basalt_deltas", "玄武岩三角洲", "#4a4a54"]
+    ];
+
+    // 官方是「温度 / 湿度」参数空间的最近邻
+    var NETHER_CENTERS = [
+      { key: "nether_wastes", t: 0.00, h: 0.00 },
+      { key: "soul_sand_valley", t: 0.00, h: -0.50 },
+      { key: "crimson_forest", t: 0.40, h: 0.00 },
+      { key: "warped_forest", t: 0.00, h: 0.50 },
+      { key: "basalt_deltas", t: -0.50, h: -0.50 }
+    ];
+
+    var END_BIOMES = [
+      ["the_end", "末地", "#ded6a0"],
+      ["end_highlands", "末地高地", "#cfc79a"],
+      ["end_midlands", "末地内陆", "#c0b88e"],
+      ["end_barrens", "末地荒地", "#aea67e"],
+      ["small_end_islands", "末地小型岛屿", "#9e9674"],
+      ["the_void", "虚空", "#0b0b14"]
+    ];
+
+    /* =====================================================================
+     * 结构表
+     * spacing / sep / freq / 所需群系全部取自 minecraft.wiki「World generation」
+     * 的 structure set 表。salt 为各结构集合的惯用值。
+     * 默认隐藏项（hidden）都是地下结构或密度极高的项，避免默认视图被点淹没。
+     * ===================================================================== */
+    var LAND = function (b) { return !/ocean|river/.test(b); };
+
+    var OVERWORLD_STRUCTURES = [
+      { id: "village", name: "村庄", color: "#f5dc7a", salt: 10387312, spacing: 34, sep: 8,
+        ok: function (b) { return /^(plains|meadow|desert|savanna|snowy_plains|taiga)$/.test(b); } },
+      { id: "desert_pyramid", name: "沙漠神殿", color: "#e0b84a", salt: 14357617, spacing: 32, sep: 8,
+        ok: function (b) { return b === "desert"; } },
+      { id: "jungle_pyramid", name: "丛林神庙", color: "#4fae3a", salt: 14357619, spacing: 32, sep: 8,
+        ok: function (b) { return /^(jungle|bamboo_jungle)$/.test(b); } },
+      { id: "swamp_hut", name: "沼泽小屋", color: "#6b7a2a", salt: 14357620, spacing: 32, sep: 8,
+        ok: function (b) { return b === "swamp"; } },
+      { id: "igloo", name: "雪屋", color: "#dfe8f0", salt: 14357618, spacing: 32, sep: 8,
+        ok: function (b) { return /^(snowy_taiga|snowy_plains|snowy_slopes)$/.test(b); } },
+      { id: "ocean_monument", name: "海底神殿", color: "#3ad6d6", salt: 10387313, spacing: 32, sep: 5,
+        ok: function (b) { return /^deep_(ocean|cold_ocean|frozen_ocean|lukewarm_ocean)$/.test(b); } },
+      { id: "woodland_mansion", name: "林地府邸", color: "#7a3f18", salt: 10387319, spacing: 80, sep: 20,
+        ok: function (b) { return /^(dark_forest|pale_garden)$/.test(b); } },
+      { id: "pillager_outpost", name: "掠夺者前哨", color: "#a33a2a", salt: 165745296, spacing: 32, sep: 8, freq: 0.2,
+        ok: function (b) {
+          return /^(desert|plains|savanna|snowy_plains|taiga|grove|meadow|frozen_peaks|jagged_peaks|stony_peaks|snowy_slopes|cherry_grove)$/.test(b);
+        } },
+      { id: "ruined_portal", name: "废弃传送门", color: "#b060d0", salt: 34222645, spacing: 40, sep: 15,
+        ok: LAND },
+      { id: "shipwreck", name: "沉船", color: "#c8a878", salt: 165745295, spacing: 24, sep: 4,
+        ok: function (b) { return /ocean|beach/.test(b); } },
+      { id: "ocean_ruins", name: "海底废墟", color: "#5ac0a0", salt: 14357621, spacing: 20, sep: 8,
+        ok: function (b) { return /ocean/.test(b); } },
+      { id: "trail_ruins", name: "古迹废墟", color: "#c9a06a", salt: 83469867, spacing: 34, sep: 8,
+        ok: function (b) {
+          return /^(taiga|snowy_taiga|old_growth_pine_taiga|old_growth_spruce_taiga|old_growth_birch_forest|jungle)$/.test(b);
+        } },
+      { id: "buried_treasure", name: "埋藏的宝藏", color: "#e8e07a", salt: 10387320, spacing: 1, sep: 0, freq: 0.01, hidden: true,
+        ok: function (b) { return /^(beach|snowy_beach)$/.test(b); } },
+      { id: "mineshaft", name: "废弃矿井", color: "#8a6a4a", salt: 129758008, spacing: 1, sep: 0, freq: 0.004, hidden: true, ok: LAND },
+      { id: "trial_chambers", name: "试炼密室", color: "#7fb0c8", salt: 94251327, spacing: 34, sep: 12, hidden: true, ok: LAND },
+      { id: "ancient_city", name: "远古城市", color: "#5a4a7a", salt: 20083232, spacing: 24, sep: 8, hidden: true, ok: LAND },
+      { id: "stronghold", name: "要塞", color: "#d0d0f0", ring: true, ok: LAND }
+    ];
+
+    var STRONGHOLD_RINGS = [
+      { count: 3, rMin: 1408, rMax: 2688 },
+      { count: 6, rMin: 4480, rMax: 5760 },
+      { count: 10, rMin: 7552, rMax: 8832 }
+    ];
+
+    // 下界：下界要塞与堡垒遗迹同属 nether_complexes，权重 2:3，同一位置只出一个
+    var NETHER_COMPLEX_WEIGHTS = [2, 3];
+    var NETHER_STRUCTURES = [
+      { id: "nether_fortress", name: "下界要塞", color: "#d0503a", salt: 30084232, spacing: 27, sep: 4,
+        pick: { index: 0, weights: NETHER_COMPLEX_WEIGHTS }, ok: function () { return true; } },
+      { id: "bastion_remnant", name: "堡垒遗迹", color: "#7a6a58", salt: 30084232, spacing: 27, sep: 4,
+        pick: { index: 1, weights: NETHER_COMPLEX_WEIGHTS },
+        ok: function (b) { return b !== "basalt_deltas"; } },
+      { id: "nether_ruined_portal", name: "废弃传送门", color: "#b060d0", salt: 34222645, spacing: 40, sep: 15,
+        ok: function () { return true; } },
+      { id: "nether_fossil", name: "下界化石", color: "#d8d0c0", salt: 14357921, spacing: 2, sep: 1, hidden: true,
+        ok: function (b) { return b === "soul_sand_valley"; } }
+    ];
+
+    var END_STRUCTURES = [
+      { id: "end_city", name: "末地城", color: "#e8d878", salt: 10387313, spacing: 20, sep: 11,
+        ok: function (b) { return /^(end_midlands|end_highlands)$/.test(b); } },
+      // 折跃门由末地城派生（每座城附近一个）+ 中心环，见 structuresInRect
+      { id: "end_gateway", name: "末地折跃门", color: "#c060e0", cityGateway: true, ok: function (b) { return b !== "the_void"; } }
+    ];
+
+    /* ---------------------- 通道（按维度） ---------------------- */
+    // freq 是相对 180 格的频率倍数：0.06 → 波长 3000 格，0.50 → 360 格
+    var CH_OVERWORLD = [
+      { key: "cont", salt: 11, octaves: 5, freq: 0.06 },
+      { key: "ero", salt: 173, octaves: 4, freq: 0.22 },
+      { key: "temp", salt: 23, octaves: 4, freq: 0.11 },
+      { key: "humid", salt: 41, octaves: 4, freq: 0.15 },
+      { key: "weird", salt: 67, octaves: 3, freq: 0.30 },
+      { key: "river", salt: 89, octaves: 3, freq: 0.50 },
+      { key: "micro", salt: 131, octaves: 1, freq: 2.6 }
+    ];
+    var CH_NETHER = [
+      { key: "netTemp", salt: 211, octaves: 3 },
+      { key: "netHumid", salt: 233, octaves: 3 },
+      { key: "netRelief", salt: 251, octaves: 3 },
+      { key: "micro", salt: 131, octaves: 1 }
+    ];
+    var CH_END = [
+      { key: "endIsland", salt: 307, octaves: 4 },
+      { key: "endEdge", salt: 331, octaves: 3 },
+      { key: "endHeight", salt: 353, octaves: 3 },
+      { key: "micro", salt: 131, octaves: 1 }
+    ];
+
+    /* ---------------------- 采样器 ---------------------- */
+    // 采样器把「地形高度」写进模块级标量 LAST_H（避免逐像素返回对象）。
+    var LAST_H = 0;
+    var microAmp = 0.45;
+    var S = null;                 // 当前维度的八度种子表
+    var F = null;                 // 当前维度的频率系数表
+
+    function freqOf(dim, key, fallback) {
+      var chs = dim.channels;
+      for (var i = 0; i < chs.length; i++) if (chs[i].key === key) return chs[i].freq || fallback;
+      return fallback;
+    }
+
+    function makeOverworldSampler(dim) {
+      var IX = dim.index;
+      var ocean = IX.ocean, deep_ocean = IX.deep_ocean, warm_ocean = IX.warm_ocean,
+        lukewarm_ocean = IX.lukewarm_ocean, deep_lukewarm_ocean = IX.deep_lukewarm_ocean,
+        cold_ocean = IX.cold_ocean, deep_cold_ocean = IX.deep_cold_ocean,
+        frozen_ocean = IX.frozen_ocean, deep_frozen_ocean = IX.deep_frozen_ocean,
+        river = IX.river, frozen_river = IX.frozen_river,
+        beach = IX.beach, snowy_beach = IX.snowy_beach, stony_shore = IX.stony_shore,
+        plains = IX.plains, sunflower_plains = IX.sunflower_plains,
+        forest = IX.forest, flower_forest = IX.flower_forest, birch_forest = IX.birch_forest,
+        dark_forest = IX.dark_forest, pale_garden = IX.pale_garden,
+        taiga = IX.taiga, snowy_taiga = IX.snowy_taiga,
+        old_growth_pine_taiga = IX.old_growth_pine_taiga, old_growth_spruce_taiga = IX.old_growth_spruce_taiga,
+        savanna = IX.savanna, savanna_plateau = IX.savanna_plateau, windswept_savanna = IX.windswept_savanna,
+        jungle = IX.jungle, sparse_jungle = IX.sparse_jungle, bamboo_jungle = IX.bamboo_jungle,
+        desert = IX.desert, badlands = IX.badlands, eroded_badlands = IX.eroded_badlands, wooded_badlands = IX.wooded_badlands,
+        swamp = IX.swamp, mangrove_swamp = IX.mangrove_swamp,
+        windswept_hills = IX.windswept_hills, windswept_gravelly_hills = IX.windswept_gravelly_hills,
+        windswept_forest = IX.windswept_forest, meadow = IX.meadow, cherry_grove = IX.cherry_grove,
+        grove = IX.grove, snowy_slopes = IX.snowy_slopes, frozen_peaks = IX.frozen_peaks,
+        jagged_peaks = IX.jagged_peaks, stony_peaks = IX.stony_peaks,
+        snowy_plains = IX.snowy_plains, ice_spikes = IX.ice_spikes, mushroom_fields = IX.mushroom_fields;
+
+      var fCont = freqOf(dim, "cont", 0.06), fEro = freqOf(dim, "ero", 0.22);
+      var fTemp = freqOf(dim, "temp", 0.11), fHumid = freqOf(dim, "humid", 0.15);
+      var fWeird = freqOf(dim, "weird", 0.30), fRiver = freqOf(dim, "river", 0.50);
+      var fMicro = freqOf(dim, "micro", 2.6);
+
+      // 低地群系：温度 × 湿度 的 5×5 气候表 + 局部特例
+      function lowland(t, h, w, cont, ero) {
+        if (h > 0.15 && t > -0.15 && cont < 0.22 && ero > 0.10) return t > 0.35 ? mangrove_swamp : swamp;
+        if (t < -0.45) {
+          if (h > 0.12) return snowy_taiga;
+          if (w > 0.55) return ice_spikes;
+          return snowy_plains;
+        }
+        if (t < -0.15) {
+          if (h > 0.30) return taiga;
+          if (h > -0.10) return forest;
+          return plains;
+        }
+        if (t < 0.15) {
+          if (h > 0.35) return w < -0.35 ? pale_garden : dark_forest;
+          if (h > 0.12) return w > 0.25 ? flower_forest : birch_forest;
+          if (h > -0.12) return forest;
+          return (h < -0.30 && w > 0.30) ? sunflower_plains : plains;
+        }
+        if (t < 0.45) {
+          if (h > 0.30) return jungle;
+          if (h > 0.05) return w < -0.35 ? sparse_jungle : forest;
+          if (h > -0.20) return savanna;
+          return desert;
+        }
+        if (h < -0.35) return w < -0.30 ? wooded_badlands : (w > 0.35 ? eroded_badlands : badlands);
+        if (h < -0.10) return desert;
+        if (h < 0.15) return savanna_plateau;
+        if (h < 0.40) return w < -0.30 ? sparse_jungle : jungle;
+        return bamboo_jungle;
+      }
+
+      // 丘陵层：对低地群系做「变种」替换（表在维度构建时展开成 HILL_LUT）
+      var hillLut = dim.hillLut;
+
+      return function (wx, wz) {
+        var x = wx * INV_180, z = wz * INV_180;
+        var cont = (fbm(x * fCont, z * fCont, S.cont, 5) - 0.5) * NOISE_GAIN;
+        var ero = (fbm(x * fEro + 61, z * fEro, S.ero, 4) - 0.5) * NOISE_GAIN;
+        var t = (fbm(x * fTemp + 30, z * fTemp, S.temp, 4) - 0.5) * NOISE_GAIN;
+        var h = (fbm(x * fHumid - 18, z * fHumid, S.humid, 4) - 0.5) * NOISE_GAIN;
+        var w = (fbm(x * fWeird, z * fWeird, S.weird, 3) - 0.5) * NOISE_GAIN;
+        var riverV = Math.abs(fbm(x * fRiver, z * fRiver, S.river, 3) - 0.5);
+
+        var rugged = -ero;                                  // 低侵蚀 = 崎岖
+        var alt = cont + rugged * 0.35 + w * 0.12;
+        LAST_H = cont * 0.85 + rugged * 0.30 + (microAmp > 0
+          ? (valueNoise(x * fMicro, z * fMicro, S.micro[0]) - 0.5) * microAmp * 2 : 0);
+
+        // 海洋
+        if (cont < -0.10) {
+          if (w > 0.72 && h > 0.35 && cont > -0.30) return mushroom_fields;
+          var deep = cont < -0.30;
+          if (t < -0.45) return deep ? deep_frozen_ocean : frozen_ocean;
+          if (t < -0.10) return deep ? deep_cold_ocean : cold_ocean;
+          if (t > 0.45) return warm_ocean;
+          if (t > 0.15) return deep ? deep_lukewarm_ocean : lukewarm_ocean;
+          return deep ? deep_ocean : ocean;
+        }
+        // 海岸：带宽刻意取窄（0.045 ≈ 0.11σ），否则沙滩会占到全图 9% 以上——
+        // 真实 MC 里沙滩只是大陆边缘一条细带。
+        if (cont < -0.055) return rugged > 0.45 ? stony_shore : (t < -0.45 ? snowy_beach : beach);
+        // 河流
+        if (riverV < 0.030 && cont < 0.55) return t < -0.45 ? frozen_river : river;
+        // 山峰 / 山坡 / 丘陵 / 低地
+        if (alt > 0.70) {
+          if (t < -0.50) return frozen_peaks;
+          if (t < 0.30) return jagged_peaks;
+          return h < 0.05 ? stony_peaks : jagged_peaks;
+        }
+        if (alt > 0.50) {
+          if (t < -0.30) return snowy_slopes;
+          if (t < -0.05) return grove;
+          if (t > 0.15 && h > 0.20 && w > 0.30) return cherry_grove;
+          return meadow;
+        }
+        var base = lowland(t, h, w, cont, ero);
+        if (alt <= 0.34) return base;
+        if (h < -0.20 && w > 0.25) return windswept_gravelly_hills;
+        // 针叶林的两个原始变种由奇异度二分，不能再走 LUT——
+        // 走 LUT 的话 old_growth_pine_taiga 只能由 taiga 变来，
+        // 而 old_growth_spruce_taiga 又要由 old_growth_pine_taiga 变来，永远取不到。
+        if (base === taiga) return w > 0 ? old_growth_pine_taiga : old_growth_spruce_taiga;
+        var v = hillLut[base];
+        return v === 0xffff ? base : v;
+      };
+    }
+
+    function makeNetherSampler(dim) {
+      var n = NETHER_CENTERS.length;
+      var ix = new Array(n), ct = new Float64Array(n), ch = new Float64Array(n);
+      for (var i = 0; i < n; i++) {
+        var c = NETHER_CENTERS[i];
+        ix[i] = dim.index[c.key]; ct[i] = c.t; ch[i] = c.h;
+      }
+      return function (wx, wz) {
+        var x = wx * INV_180, z = wz * INV_180;
+        var t = (fbm(x * 0.4 + 7, z * 0.4, S.netTemp, 3) - 0.5) * NETHER_GAIN;
+        var h = (fbm(x * 0.4 - 11, z * 0.4, S.netHumid, 3) - 0.5) * NETHER_GAIN;
+        var best = 0, bestD = Infinity, i2;
+        for (i2 = 0; i2 < n; i2++) {
+          var dt = t - ct[i2], dh = h - ch[i2];
+          var d = dt * dt + dh * dh;
+          if (d < bestD) { bestD = d; best = i2; }
+        }
+        var relief = (fbm(x * 0.8, z * 0.8, S.netRelief, 3) - 0.5) * 2;
+        LAST_H = relief + (microAmp > 0 ? (valueNoise(x * 1.6, z * 1.6, S.micro[0]) - 0.5) * microAmp * 2 : 0);
+        return ix[best];
+      };
+    }
+
+    function makeEndSampler(dim) {
+      var IX = dim.index;
+      var vEnd = IX.the_end, vVoid = IX.the_void, vHigh = IX.end_highlands,
+        vMid = IX.end_midlands, vBarren = IX.end_barrens, vSmall = IX.small_end_islands;
+      return function (wx, wz) {
+        var x = wx * INV_180, z = wz * INV_180;
+        var r = Math.sqrt(wx * wx + wz * wz);
+        var edge = (fbm(x * 0.6, z * 0.6, S.endEdge, 3) - 0.5) * END_GAIN;
+        var islandR = 1010 + edge * 300;
+        if (r < islandR) {
+          LAST_H = 0.55 + (microAmp > 0 ? (valueNoise(x * 3.0, z * 3.0, S.micro[0]) - 0.5) * 0.5 : 0);
+          return vEnd;
+        }
+        if (r < islandR + 260) { LAST_H = -0.95; return vVoid; }
+        var dens = (fbm(x * 0.5 + 13, z * 0.5, S.endIsland, 4) - 0.5) * END_GAIN;
+        if (dens < -0.08) { LAST_H = -0.95; return vVoid; }
+        var hgt = (fbm(x * 0.9 - 5, z * 0.9, S.endHeight, 3) - 0.5) * END_GAIN;
+        LAST_H = dens * 0.6 + hgt * 0.7;
+        if (LAST_H > 0.32) return vHigh;
+        if (LAST_H > 0.04) return vMid;
+        if (LAST_H > -0.26) return vBarren;
+        return vSmall;
+      };
+    }
+
+    var SAMPLER_FACTORY = { overworld: makeOverworldSampler, nether: makeNetherSampler, end: makeEndSampler };
+
+    /* ---------------------- 亮度映射 ---------------------- */
+    function shadeLevel(h) {
+      var t = (h + 1) * 0.5;
+      if (t <= 0) return 0;
+      if (t >= 1) return SHADE_LEVELS - 1;
+      return (t * (SHADE_LEVELS - 1)) | 0;
+    }
+
+    /* ---------------------- 维度构建 ---------------------- */
+    function makeDimension(def) {
+      var count = def.biomes.length;
+      var dim = {
+        key: def.key, label: def.label, count: count,
+        ids: new Array(count), names: new Array(count), hexes: new Array(count),
+        index: {}, flat: new Uint32Array(count), water: new Uint8Array(count),
+        shaded: new Uint32Array(count * SHADE_LEVELS),
+        structures: def.structures, channels: def.channels
+      };
+      for (var i = 0; i < count; i++) {
+        var b = def.biomes[i];
+        dim.ids[i] = b[0];
+        dim.index[b[0]] = i;
+        dim.names[i] = b[1];
+        dim.hexes[i] = b[2];
+        dim.water[i] = /ocean|river|void/.test(b[0]) ? 1 : 0;
+        var rgb = hexChannels(b[2]);
+        dim.flat[i] = packColor(rgb[0], rgb[1], rgb[2]);
+        for (var l = 0; l < SHADE_LEVELS; l++) {
+          var m = SHADE_MIN + (SHADE_MAX - SHADE_MIN) * (l / (SHADE_LEVELS - 1));
+          dim.shaded[i * SHADE_LEVELS + l] = packColor(clamp255(rgb[0] * m), clamp255(rgb[1] * m), clamp255(rgb[2] * m));
+        }
+      }
+      // 丘陵变种表：默认 0xffff 表示「不变」，显式覆盖需要替换的项
+      var hill = new Uint16Array(count); hill.fill(0xffff);
+      var N = dim.index;
+      function setHill(fromKey, toKey) {
+        if (N[fromKey] !== undefined && N[toKey] !== undefined) hill[N[fromKey]] = N[toKey];
+      }
+      setHill("plains", "windswept_hills");
+      setHill("sunflower_plains", "windswept_hills");
+      setHill("forest", "windswept_forest");
+      setHill("flower_forest", "windswept_forest");
+      setHill("birch_forest", "old_growth_birch_forest");
+      setHill("savanna", "windswept_savanna");
+      setHill("savanna_plateau", "windswept_savanna");
+      setHill("jungle", "bamboo_jungle");
+      setHill("sparse_jungle", "bamboo_jungle");
+      dim.hillLut = hill;
+
+      for (var s = 0; s < dim.structures.length; s++) {
+        var st = dim.structures[s];
+        var lut = new Uint8Array(count);
+        for (var j = 0; j < count; j++) lut[j] = st.ok(dim.ids[j]) ? 1 : 0;
+        st.okLut = lut;
+        st.hidden = !!st.hidden;
+        if (st.ring || st.cityGateway) continue;
+        // frequency < 1 且间隔大于 spacing 时，把候选网格粗化后每格取一点。
+        // 注意 frequency 是「每个区块出现的概率」，要换算成网格边长必须开方：
+        // 平均 1 个候选需要 1/frequency 个区块的面积，边长就是 sqrt(1/frequency)
+        // 个区块。写成 1/frequency 会把密度低估 sqrt(1/frequency) 倍
+        // （矿井 0.4% → 错成 1/250 边长，实际应为 16 区块）。
+        var gap = (st.freq && st.freq < 1) ? Math.ceil(Math.sqrt(1 / st.freq)) : 0;
+        if (gap > st.spacing) { st.effSpacing = gap; st.span = gap; st.explicitFreq = 1; }
+        else { st.effSpacing = st.spacing; st.span = Math.max(1, st.spacing - st.sep); st.explicitFreq = gap ? st.freq : 1; }
+        st.saltBig = BigInt(st.salt || 0);
+        // 该结构在本地维度里能落地的群系比例，用于估算「视野内实际会出现多少个」，
+        // 否则候选数量闸会按含了大量不落地候选的区域数来抽稀，把稀疏结构抽没。
+        var cover = 0;
+        for (var q = 0; q < count; q++) cover += lut[q];
+        st.coverage = cover / count;
+      }
+      dim.sample = SAMPLER_FACTORY[def.sampler](dim);
+      return dim;
+    }
+
+    var DIM_TABLE = {
+      overworld: makeDimension({ key: "overworld", label: "主世界", biomes: OVERWORLD_BIOMES, channels: CH_OVERWORLD, sampler: "overworld", structures: OVERWORLD_STRUCTURES }),
+      nether: makeDimension({ key: "nether", label: "下界", biomes: NETHER_BIOMES, channels: CH_NETHER, sampler: "nether", structures: NETHER_STRUCTURES }),
+      end: makeDimension({ key: "end", label: "末地", biomes: END_BIOMES, channels: CH_END, sampler: "end", structures: END_STRUCTURES })
+    };
+
+    /* ---------------------- 要塞（同心环带） ---------------------- */
+    var STRONGHOLD_CACHE = { seed: null, list: null };
+    function strongholdList(seed) {
+      if (STRONGHOLD_CACHE.seed === seed && STRONGHOLD_CACHE.list) return STRONGHOLD_CACHE.list;
+      var out = [];
+      for (var r = 0; r < STRONGHOLD_RINGS.length; r++) {
+        var ring = STRONGHOLD_RINGS[r];
+        var rnd = new JavaRandom(seed + BigInt(1000 + r * 17));
+        var angles = new Array(ring.count);
+        for (var k = 0; k < ring.count; k++) angles[k] = rnd.nextFloat01() * Math.PI * 2;
+        angles.sort(function (a, b) { return a - b; });
+        for (var k2 = 0; k2 < ring.count; k2++) {
+          var dist = ring.rMin + (ring.rMax - ring.rMin) * rnd.nextFloat01();
+          out.push({ x: Math.round(Math.cos(angles[k2]) * dist), z: Math.round(Math.sin(angles[k2]) * dist) });
+        }
+      }
+      STRONGHOLD_CACHE = { seed: seed, list: out };
+      return out;
+    }
+
+    /* ---------------------- 结构查询 ---------------------- */
+    function structuresInRect(seed, x0, z0, x1, z1) {
+      var found = [];
+      var list = dim.structures;
+      for (var si = 0; si < list.length; si++) {
+        var st = list[si];
+
+        if (st.ring) {
+          var ringPts = strongholdList(seed);
+          for (var h = 0; h < ringPts.length; h++) {
+            var p = ringPts[h];
+            if (p.x < x0 || p.x > x1 || p.z < z0 || p.z > z1) continue;
+            if (!st.okLut[dim.sample(p.x, p.z)]) continue;
+            found.push({ st: st, x: p.x, z: p.z });
+          }
+          continue;
+        }
+
+        // 末地折跃门：中心环 20 个 + 每座末地城附近 1 个。
+        // 末地城在上面的循环里已经进 found，所以直接派生即可。
+        if (st.cityGateway) {
+          for (var ci = 0; ci < found.length; ci++) {
+            if (found[ci].st.id !== "end_city") continue;
+            var g = new JavaRandom(seed + BigInt(found[ci].x * 31 + found[ci].z * 17 + 40013));
+            var ang = g.nextFloat01() * Math.PI * 2;
+            var rad = 120 + g.nextInt(160);
+            var gx = Math.round(found[ci].x + Math.cos(ang) * rad);
+            var gz = Math.round(found[ci].z + Math.sin(ang) * rad);
+            if (gx < x0 || gx > x1 || gz < z0 || gz > z1) continue;
+            found.push({ st: st, x: gx, z: gz });
+          }
+          continue;
+        }
+
+        var sp = st.effSpacing;
+        var pxPerRegion = sp * 16 / scale;
+        var strideByPx = pxPerRegion >= STRUCT_MIN_PX ? 1 : Math.ceil(STRUCT_MIN_PX / pxPerRegion);
+        // 数量闸：按「视野内预计真正会落地的个数」封顶（区域数 × 群系覆盖比例），
+        // 并且只看缩放与缓冲尺寸 —— 矩形随平移变化，一旦让它参与 stride 计算，
+        // 跨过超集边界时整张点阵会改相位（标记整体跳动）。
+        var viewRegions = (Math.max(1, bufW) * scale / (sp * 16)) * (Math.max(1, bufH) * scale / (sp * 16));
+        var strideByCount = Math.max(1, Math.ceil(Math.sqrt(viewRegions * (st.coverage || 1) / MAX_REGIONS_PER_TYPE)));
+        var stride = Math.max(strideByPx, strideByCount);
+        st.thinned = stride > 1;
+
+        var rawMinRX = Math.floor(x0 / 16 / sp) - 1;
+        var rawMaxRX = Math.floor(x1 / 16 / sp) + 1;
+        var rawMinRZ = Math.floor(z0 / 16 / sp) - 1;
+        var rawMaxRZ = Math.floor(z1 / 16 / sp) + 1;
+        var minRX = stride > 1 ? Math.floor(rawMinRX / stride) * stride : rawMinRX;
+        var minRZ = stride > 1 ? Math.floor(rawMinRZ / stride) * stride : rawMinRZ;
+
+        var seedSalt = seed + st.saltBig;
+        var bzTerms = new Array(rawMaxRZ - minRZ + 1);
+        var kz = 0;
+        for (var rz0 = minRZ; rz0 <= rawMaxRZ; rz0++) bzTerms[kz++] = regionTerm(bzCache, rz0, REGION_B);
+
+        for (var rx = minRX; rx <= rawMaxRX; rx += stride) {
+          var axTerm = regionTerm(axCache, rx, REGION_A);
+          var k = 0;
+          for (var rz = minRZ; rz <= rawMaxRZ; rz += stride, k += stride) {
+            var rnd = new JavaRandom(axTerm + bzTerms[k] + seedSalt);
+            var cx = rx * sp + rnd.nextInt(st.span);
+            var cz = rz * sp + rnd.nextInt(st.span);
+            var bx = cx * 16 + 8, bz = cz * 16 + 8;
+            if (bx < x0 || bx > x1 || bz < z0 || bz > z1) continue;
+            if (st.pick) {
+              if (weightedPick(rnd, st.pick.weights) !== st.pick.index) continue;
+            } else if (st.explicitFreq < 1 && rnd.nextFloat01() >= st.explicitFreq) continue;
+            if (!st.okLut[dim.sample(bx, bz)]) continue;
+            found.push({ st: st, x: bx, z: bz });
+          }
+        }
+      }
+      return found;
+    }
+
+    /* ---------------------- DOM / 视图状态 ---------------------- */
+    var canvas = document.getElementById("map");
+    var ctx = canvas.getContext("2d", { alpha: false });
+    var hud = document.getElementById("hud");
+    var empty = document.getElementById("empty");
+    var tools = document.getElementById("tools");
+    var legend = document.getElementById("legend");
+
+    var dim = DIM_TABLE.overworld;
+    var seed = 0n, seedText = "", hasSeed = false;
+    var originX = 0, originZ = 0, scale = 8;
+    var terrainOn = true, structuresOn = true;
+    var drag = false, lastX = 0, lastY = 0;
+    var accX = 0, accZ = 0;
+    var hoverX = 0, hoverZ = 0, hoverDirty = false;
+    var bufferIsFine = false;
+
+    var img = null, img32 = null, bufW = 0, bufH = 0;
+
+    var RENDER_BUDGET_MS = 8;
+    var FINE_BUDGET_MS = 14;
+    var COARSE_STEP = 4;
+    var IDLE_FINE_MS = 220;
+    var HSTRIP_MAX_COLS = 16;
+    var VSTRIP_MAX_ROWS = 12;
+    var job = null;
+    var idleTimer = 0;
+
+    var markCache = null;
+    var marks = [];
+    var viewX0 = 0, viewZ0 = 0;
+
+    function parseSeed(text) {
+      text = String(text == null ? "" : text).trim();
+      if (!text) throw new Error("种子不能为空");
+      if (/^-?\d+$/.test(text)) {
+        try { return BigInt(text); } catch (e) { /* 落到字符串哈希 */ }
+      }
+      var h = 0;
+      for (var i = 0; i < text.length; i++) h = Math.imul(31, h) + text.charCodeAt(i) | 0;
+      return BigInt(h);
+    }
+
+    function post(msg) {
+      try {
+        if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage(msg);
+      } catch (e) { /* 非 WebView2 宿主下忽略 */ }
+    }
+
+    function updateMicroAmp() {
+      // 微起伏波长约 70 格；1 像素 = 24 格以上时它不足 3 像素，加进去只是噪声
+      microAmp = scale <= 8 ? 0.45 : (scale <= 24 ? 0.22 : 0);
+    }
+
+    // 光栅倍率：缩到 24 格/像素以上时群系场压到个位数像素，逐像素点采样必然
+    // 退化成硬噪点。此时主动降低缓冲分辨率，让浏览器放大时做双线性插值把噪点
+    // 软化成色块——不去动群系场本身，也不改变任何位置的群系判定。
+    // 全局坐标换算本来就按 bufW / clientWidth 的比值做，所以改倍率不需要动别的。
+    function rasterFactor() {
+      if (scale <= 12) return 1;
+      if (scale <= 24) return 0.75;
+      if (scale <= 40) return 0.5;
+      return 0.4;
+    }
+
+    /* ---------------------- 缓冲 ---------------------- */
+    function allocBuffer(w, h) {
+      canvas.width = w;
+      canvas.height = h;
+      img = ctx.createImageData(w, h);
+      img32 = new Uint32Array(img.data.buffer);
+      bufW = w;
+      bufH = h;
+      markCache = null;
+    }
+
+    function syncViewOrigin() {
+      viewX0 = originX - (bufW / 2) * scale;
+      viewZ0 = originZ - (bufH / 2) * scale;
+    }
+
+    function resize() {
+      var cw = Math.max(1, Math.round(canvas.clientWidth));
+      var ch = Math.max(1, Math.round(canvas.clientHeight));
+      var f = rasterFactor();
+      var w = Math.max(1, Math.round(cw * f));
+      var h = Math.max(1, Math.round(ch * f));
+      if (w === bufW && h === bufH) return false;
+      allocBuffer(w, h);
+      return true;
+    }
+
+    /* ---------------------- 取色 ---------------------- */
+    function colorAt(wx, wz) {
+      var idx = dim.sample(wx, wz);
+      if (!terrainOn || dim.water[idx]) return dim.flat[idx];
+      return dim.shaded[idx * SHADE_LEVELS + shadeLevel(LAST_H)];
+    }
+
+    /* ---------------------- 渲染内核 ---------------------- */
+    function computeRow(y, step) {
+      var base = y * bufW;
+      var wz = viewZ0 + y * scale;
+      var p = base;
+      for (var x = 0; x < bufW; x++) img32[p++] = colorAt(viewX0 + x * scale, wz);
+      if (step > 1) {
+        var end = y + step;
+        if (end > bufH) end = bufH;
+        for (var yy = y + 1; yy < end; yy++) img32.copyWithin(yy * bufW, base, base + bufW);
+      }
+    }
+
+    function startRender(step) {
+      syncViewOrigin();
+      refreshMarks();
+      if (step > 1) bufferIsFine = false;
+      job = { step: step, y: 0 };
+    }
+
+    function renderStep() {
+      if (!job) return;
+      var budgetMs = job.step === 1 ? FINE_BUDGET_MS : RENDER_BUDGET_MS;
+      var t0 = performance.now();
+      var y0 = job.y;
+      while (job.y < bufH) {
+        computeRow(job.y, job.step);
+        job.y += job.step;
+        if (performance.now() - t0 >= budgetMs) break;
+      }
+      var y1 = job.y; if (y1 > bufH) y1 = bufH;
+      flushRows(y0, y1);
+      if (job.y >= bufH) {
+        var finished = job.step;
+        job = null;
+        if (finished === 1) { bufferIsFine = true; post({ type: "seedmap.rendered" }); }
+        else post({ type: "seedmap.firstPaint" });
+      }
+    }
+
+    function flushRows(y0, y1) {
+      if (y1 <= y0) return;
+      ctx.putImageData(img, 0, 0, 0, y0, bufW, y1 - y0);
+      drawOverlayIn(0, y0, bufW, y1);
+    }
+
+    function presentAll() {
+      ctx.putImageData(img, 0, 0);
+      drawOverlayIn(0, 0, bufW, bufH);
+    }
+
+    function presentStrips(hrx, hry, vrx, vry) {
+      if (hrx) { ctx.putImageData(img, 0, 0, hrx[0], hry[0], hrx[1] - hrx[0], hry[1] - hry[0]); drawOverlayIn(hrx[0], hry[0], hrx[1], hry[1]); }
+      if (vrx) { ctx.putImageData(img, 0, 0, vrx[0], vry[0], vrx[1] - vrx[0], vry[1] - vry[0]); drawOverlayIn(vrx[0], vry[0], vrx[1], vry[1]); }
+    }
+
+    /* ---------------------- 拖动位移复用 ---------------------- */
+    function panBy(sdx, sdy) {
+      if (sdx <= -bufW || sdx >= bufW || sdy <= -bufH || sdy >= bufH) {
+        startRender(COARSE_STEP);
+        scheduleIdleFine();
+        return;
+      }
+
+      originX -= sdx * scale;
+      originZ -= sdy * scale;
+      syncViewOrigin();
+
+      var ys, ye, dir;
+      if (sdy > 0) { ys = bufH - 1 - sdy; ye = -1; dir = -1; }
+      else if (sdy < 0) { ys = -sdy; ye = bufH; dir = 1; }
+      else { ys = 0; ye = bufH; dir = 1; }
+
+      for (var y = ys; dir > 0 ? y < ye : y > ye; y += dir) {
+        var src = y * bufW, dst = (y + sdy) * bufW;
+        if (sdx > 0) img32.copyWithin(dst + sdx, src, src + bufW - sdx);
+        else if (sdx < 0) img32.copyWithin(dst, src - sdx, src + bufW);
+        else img32.copyWithin(dst, src, src + bufW);
+      }
+
+      try { ctx.drawImage(canvas, sdx, sdy); } catch (err) { presentAll(); }
+
+      var hrx = null, hry = null, vrx = null, vry = null;
+      var x;
+      if (sdx !== 0) {
+        var cx0 = sdx > 0 ? 0 : bufW + sdx;
+        var cx1 = sdx > 0 ? sdx : bufW;
+        var stepH = Math.max(1, Math.ceil((cx1 - cx0) / HSTRIP_MAX_COLS));
+        if (stepH > 1) bufferIsFine = false;
+        for (y = 0; y < bufH; y++) {
+          var wz = viewZ0 + y * scale;
+          var row = y * bufW;
+          for (var cx = cx0; cx < cx1; cx += stepH) {
+            var color = colorAt(viewX0 + cx * scale, wz);
+            var cLim = cx + stepH < cx1 ? cx + stepH : cx1;
+            for (var k = cx; k < cLim; k++) img32[row + k] = color;
+          }
+        }
+        hrx = [cx0, cx1]; hry = [0, bufH];
+      }
+      if (sdy !== 0) {
+        var cy0 = sdy > 0 ? 0 : bufH + sdy;
+        var cy1 = sdy > 0 ? sdy : bufH;
+        var stepV = Math.max(1, Math.ceil((cy1 - cy0) / VSTRIP_MAX_ROWS));
+        if (stepV > 1) bufferIsFine = false;
+        for (y = cy0; y < cy1; y += stepV) {
+          var wz2 = viewZ0 + y * scale;
+          var p2 = y * bufW;
+          for (x = 0; x < bufW; x++) img32[p2++] = colorAt(viewX0 + x * scale, wz2);
+          var rLim = y + stepV < cy1 ? y + stepV : cy1;
+          for (var ry = y + 1; ry < rLim; ry++) img32.copyWithin(ry * bufW, y * bufW, y * bufW + bufW);
+        }
+        vrx = [0, bufW]; vry = [cy0, cy1];
+      }
+
+      if (!bufferIsFine) scheduleIdleFine();
+      refreshMarks();
+      presentStrips(hrx, hry, vrx, vry);
+    }
+
+    /* ---------------------- 结构体缓存 ---------------------- */
+    function refreshMarks() {
+      var x0 = viewX0, z0 = viewZ0;
+      var x1 = x0 + bufW * scale, z1 = z0 + bufH * scale;
+      var cache = markCache;
+      if (cache && cache.seed === seedText && cache.dim === dim.key
+          && x0 >= cache.x0 && x1 <= cache.x1 && z0 >= cache.z0 && z1 <= cache.z1) {
+        marks = filterMarks(cache.all, x0, z0, x1, z1);
+        return;
+      }
+      var mx = (x1 - x0) * 0.3, mz = (z1 - z0) * 0.3;
+      var cx0 = x0 - mx, cz0 = z0 - mz, cx1 = x1 + mx, cz1 = z1 + mz;
+      var all = structuresInRect(seed, cx0, cz0, cx1, cz1);
+      markCache = { seed: seedText, dim: dim.key, x0: cx0, z0: cz0, x1: cx1, z1: cz1, all: all };
+      marks = filterMarks(all, x0, z0, x1, z1);
+      updateDensityHint();
+    }
+
+    function filterMarks(list, x0, z0, x1, z1) {
+      var out = [];
+      if (!structuresOn) return out;
+      for (var i = 0; i < list.length; i++) {
+        var m = list[i];
+        if (m.st.hidden) continue;
+        if (m.x < x0 || m.x > x1 || m.z < z0 || m.z > z1) continue;
+        // 预计算屏幕 Y 并排序：叠加层按行条带分帧重画，排好序后每条带只需
+        // 二分定位 + 扫描自身范围，而不是遍历视口内全部标记。
+        m.sy = (m.z - originZ) / scale + bufH / 2;
+        out.push(m);
+      }
+      out.sort(bySy);
+      return out;
+    }
+
+    function bySy(a, b) { return a.sy - b.sy; }
+
+    function lowerBound(arr, y) {
+      var lo = 0, hi = arr.length;
+      while (lo < hi) {
+        var mid = (lo + hi) >> 1;
+        if (arr[mid].sy < y) lo = mid + 1; else hi = mid;
+      }
+      return lo;
+    }
+
+    var densityHint = "";
+    function updateDensityHint() {
+      var thinned = 0, visible = 0;
+      for (var i = 0; i < dim.structures.length; i++) {
+        var st = dim.structures[i];
+        if (st.hidden) continue;
+        visible++;
+        if (st.thinned) thinned++;
+      }
+      densityHint = thinned > 0 && structuresOn
+        ? "已抽稀 " + thinned + "/" + visible + " 类结构（放大地图可见）" : "";
+    }
+
+    /* ---------------------- 叠加层 ---------------------- */
+    function drawOverlayIn(rx0, ry0, rx1, ry1) {
+      if (!hasSeed) return;
+      var cssPerBuf = Math.max(0.01, bufW / Math.max(1, canvas.clientWidth));
+      var r = Math.max(2, 4 / cssPerBuf);   // 标记半径保持 CSS 像素恒定
+      var px0 = rx0 - 6, px1 = rx1 + 6, py0 = ry0 - 6, py1 = ry1 + 6;
+      ctx.lineWidth = Math.max(1, 1.5 / cssPerBuf);
+      ctx.strokeStyle = "#111";
+      for (var i = lowerBound(marks, py0); i < marks.length; i++) {
+        var m = marks[i];
+        if (m.sy > py1) break;
+        var sx = (m.x - originX) / scale + bufW / 2;
+        if (sx < px0 || sx > px1) continue;
+        ctx.fillStyle = m.st.color;
+        ctx.beginPath();
+        ctx.arc(sx, m.sy, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+      var ox = -originX / scale + bufW / 2, oz = -originZ / scale + bufH / 2;
+      if (ox < px0 || ox > px1 || oz < py0 || oz > py1) return;
+      ctx.strokeStyle = "rgba(255,255,255,.55)";
+      ctx.lineWidth = Math.max(1, 2 / cssPerBuf);
+      ctx.beginPath();
+      ctx.moveTo(ox - 8, oz); ctx.lineTo(ox + 8, oz);
+      ctx.moveTo(ox, oz - 8); ctx.lineTo(ox, oz + 8);
+      ctx.stroke();
+    }
+
+    /* ---------------------- 主循环 ---------------------- */
+    function tick() {
+      if (job) renderStep();
+      if (hoverDirty && hasSeed) { hoverDirty = false; updateHud(hoverX, hoverZ); }
+      requestAnimationFrame(tick);
+    }
+
+    function fmtScale(v) {
+      return v >= 1 ? (v === Math.round(v) ? String(v) : v.toFixed(2)) : v.toFixed(2);
+    }
+
+    function updateHud(wx, wz) {
+      var idx = dim.sample(wx, wz);
+      hud.innerHTML = "种子 <b>" + seedText + "</b>　<span style='color:#9a9a9a'>" + dim.label + "</span>"
+        + "<br>X " + Math.round(wx) + "　Z " + Math.round(wz)
+        + "<br>群系 <b>" + (dim.names[idx] || "未知") + "</b>"
+        + "<br>1 像素 = " + fmtScale(scale) + " 格" + (terrainOn ? "　地形开" : "　地形关")
+        + (densityHint ? "<s>" + densityHint + "</s>" : "");
+    }
+
+    function scheduleIdleFine() {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(function () {
+        idleTimer = 0;
+        if (!hasSeed) return;
+        if (job) { scheduleIdleFine(); return; }
+        if (!bufferIsFine) startRender(1);
+      }, IDLE_FINE_MS);
+    }
+
+    /* ---------------------- 交互 ---------------------- */
+    function screenToWorld(sx, sy) {
+      var dpr = bufW / Math.max(1, canvas.clientWidth);
+      return {
+        x: originX + (sx * dpr - bufW / 2) * scale,
+        z: originZ + (sy * dpr - bufH / 2) * scale
+      };
+    }
+
+    // 档位量化见文件上方的 SCALE_LADDER / snapScale
+    function setScale(target, sx, sy) {
+      var anchor = screenToWorld(sx, sy);
+      target = snapScale(target);
+      if (target < MIN_SCALE) target = MIN_SCALE;
+      if (target > MAX_SCALE) target = MAX_SCALE;
+      if (target === scale) return;
+      scale = target;
+      updateMicroAmp();
+      var after = screenToWorld(sx, sy);
+      originX += anchor.x - after.x;
+      originZ += anchor.z - after.z;
+      accX = 0; accZ = 0;
+      job = null;
+      markCache = null;          // 抽稀 stride 与 scale 相关，缩放后必须重算候选点
+      bufferIsFine = false;
+      resize();                  // 光栅倍率随 scale 变，跨档位时缓冲要重建
+      startRender(COARSE_STEP);
+      scheduleIdleFine();
+      hoverDirty = true;
+      post({ type: "seedmap.scale", scale: scale });
+    }
+
+    function zoomBy(factor, sx, sy) {
+      if (sx === undefined) { sx = canvas.clientWidth / 2; sy = canvas.clientHeight / 2; }
+      var i = ladderIndex(scale);
+      var ni = factor > 1 ? i + 1 : i - 1;
+      if (ni < 0) ni = 0;
+      if (ni >= SCALE_LADDER.length) ni = SCALE_LADDER.length - 1;
+      setScale(SCALE_LADDER[ni], sx, sy);
+    }
+
+    canvas.addEventListener("pointerdown", function (e) {
+      drag = true;
+      lastX = e.clientX; lastY = e.clientY;
+      accX = 0; accZ = 0;
+      canvas.classList.add("drag");
+      try { canvas.setPointerCapture(e.pointerId); } catch (err) { }
+    });
+
+    function endDrag(e) {
+      if (!drag) return;
+      drag = false;
+      canvas.classList.remove("drag");
+      try { canvas.releasePointerCapture(e.pointerId); } catch (err) { }
+      scheduleIdleFine();
+    }
+    canvas.addEventListener("pointerup", endDrag);
+    canvas.addEventListener("pointercancel", endDrag);
+
+    canvas.addEventListener("pointermove", function (e) {
+      if (drag) {
+        var dpr = bufW / Math.max(1, canvas.clientWidth);
+        accX += (e.clientX - lastX) * dpr;
+        accZ += (e.clientY - lastY) * dpr;
+        lastX = e.clientX; lastY = e.clientY;
+
+        if (job) job = null;
+        var sdx = Math.trunc(accX), sdy = Math.trunc(accZ);
+        if (sdx !== 0 || sdy !== 0) {
+          accX -= sdx; accZ -= sdy;
+          panBy(sdx, sdy);
+        }
+        return;
+      }
+      var p = screenToWorld(e.offsetX, e.offsetY);
+      hoverX = p.x; hoverZ = p.z;
+      hoverDirty = true;
+    });
+
+    canvas.addEventListener("wheel", function (e) {
+      e.preventDefault();
+      zoomBy(e.deltaY > 0 ? ZOOM_STEP : 1 / ZOOM_STEP, e.offsetX, e.offsetY);
+    }, { passive: false });
+
+    window.addEventListener("keydown", function (e) {
+      if (!hasSeed) return;
+      if (e.key === "+" || e.key === "=") { zoomBy(1 / ZOOM_STEP); e.preventDefault(); }
+      else if (e.key === "-" || e.key === "_") { zoomBy(ZOOM_STEP); e.preventDefault(); }
+      else if (e.key === "0") { resetView(); e.preventDefault(); }
+    });
+
+    function resetView() {
+      originX = 0; originZ = 0; scale = 8;
+      accX = 0; accZ = 0;
+      updateMicroAmp();
+      job = null;
+      markCache = null;
+      bufferIsFine = false;
+      resize();
+      startRender(COARSE_STEP);
+      scheduleIdleFine();
+      hoverDirty = true;
+      post({ type: "seedmap.scale", scale: scale });
+    }
+
+    document.getElementById("origin").onclick = resetView;
+    document.getElementById("toggleLegend").onclick = function () {
+      legend.style.display = legend.style.display === "block" ? "none" : "block";
+    };
+
+    /* ---------------------- 图例 ---------------------- */
+    function buildLegend() {
+      var watermark = dim.key === "overworld"
+        ? "<h4>主世界 " + dim.count + " 个地表群系（溶洞 / 繁茂洞穴 / 深暗之域为纯地下群系，不在此图呈现）</h4>"
+        : "<h4>" + dim.label + " · " + dim.count + " 个群系</h4>";
+      var html = watermark;
+      for (var i = 0; i < dim.count; i++) {
+        html += "<div><i style='background:" + dim.hexes[i] + "'></i>" + dim.names[i] + "</div>";
+      }
+      legend.innerHTML = html;
+    }
+
+    /* ---------------------- 维度切换 ---------------------- */
+    function structureListPayload() {
+      var items = [];
+      for (var i = 0; i < dim.structures.length; i++) {
+        var st = dim.structures[i];
+        items.push({ id: st.id, name: st.name, color: st.color, visible: !st.hidden });
+      }
+      return { type: "seedmap.structureList", dimension: dim.key, label: dim.label, items: items };
+    }
+
+    function applyDimension(name, keepView) {
+      var next = DIM_TABLE[name];
+      if (!next) return;
+      if (next === dim) { post(structureListPayload()); return; }
+      dim = next;
+      if (hasSeed) { S = buildOctaveSeeds(seed, dim.channels); STRONGHOLD_CACHE = { seed: null, list: null }; }
+      if (!keepView) { originX = 0; originZ = 0; scale = 8; updateMicroAmp(); resize(); }
+      markCache = null;
+      buildLegend();
+      job = null;
+      bufferIsFine = false;
+      post(structureListPayload());
+      if (!hasSeed) return;
+      startRender(COARSE_STEP);
+      scheduleIdleFine();
+      hoverDirty = true;
+      post({ type: "seedmap.dimension", dimension: name });
+    }
+
+    /* ---------------------- 宿主接口 ---------------------- */
+    window.setSeed = function (text) {
+      var t = String(text == null ? "" : text).trim();
+      if (!t) throw new Error("种子不能为空");
+      seedText = t;
+      seed = parseSeed(t);
+      S = buildOctaveSeeds(seed, dim.channels);
+      STRONGHOLD_CACHE = { seed: null, list: null };
+
+      hasSeed = true;
+      originX = 0; originZ = 0; scale = 8;
+      accX = 0; accZ = 0;
+      markCache = null;
+      job = null;
+      bufferIsFine = false;
+      updateMicroAmp();
+
+      empty.style.display = "none";
+      hud.style.display = "block";
+      tools.style.display = "flex";
+
+      buildLegend();
+      resize();
+      startRender(COARSE_STEP);
+      scheduleIdleFine();
+      hoverDirty = true;
+      post({ type: "seedmap.start", seed: t, dimension: dim.key });
+    };
+
+    window.setDimension = function (name) { applyDimension(String(name || "").toLowerCase(), true); };
+    window.setTerrain = function (on) {
+      terrainOn = !!on;
+      if (!hasSeed) return;
+      job = null;
+      startRender(COARSE_STEP);
+      scheduleIdleFine();
+    };
+    window.setStructures = function (on) {
+      structuresOn = !!on;
+      if (!hasSeed) return;
+      refreshMarks();
+      presentAll();
+    };
+    window.setStructureVisible = function (id, visible) {
+      var list = dim.structures;
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].id !== String(id)) continue;
+        list[i].hidden = !visible;
+        if (!hasSeed) return true;
+        refreshMarks();
+        presentAll();
+        hoverDirty = true;
+        return true;
+      }
+      return false;
+    };
+    window.setAllStructures = function (visible) {
+      for (var i = 0; i < dim.structures.length; i++) dim.structures[i].hidden = !visible;
+      post(structureListPayload());
+      if (!hasSeed) return;
+      refreshMarks();
+      presentAll();
+      hoverDirty = true;
+    };
+    // 缩放走的档位表在页面内，宿主不需要复刻一份
+    window.zoomIn = function () { zoomBy(1 / ZOOM_STEP); };
+    window.zoomOut = function () { zoomBy(ZOOM_STEP); };
+    window.resetView = function () { resetView(); };
+    window.setScale = function (value) {
+      var v = Number(value);
+      if (!isFinite(v)) return;
+      setScale(v, canvas.clientWidth / 2, canvas.clientHeight / 2);
+    };
+    // 宿主面板需要同步当前状态（缩放刻度、是否抽稀）时调用
+    window.getMapState = function () {
+      var items = [];
+      for (var i = 0; i < dim.structures.length; i++) {
+        items.push({ id: dim.structures[i].id, visible: !dim.structures[i].hidden });
+      }
+      return { dimension: dim.key, scale: scale, terrain: terrainOn, structures: structuresOn, items: items };
+    };
+
+    // 面板显示/尺寸变化都要重建光栅（WebView 从 Collapsed 恢复不会触发 window.resize）
+    var resizePending = false;
+    function onViewportChanged() {
+      if (resizePending) return;
+      resizePending = true;
+      requestAnimationFrame(function () {
+        resizePending = false;
+        if (!resize()) return;
+        if (!hasSeed) return;
+        job = null;
+        markCache = null;
+        startRender(COARSE_STEP);
+        scheduleIdleFine();
+      });
+    }
+    window.addEventListener("resize", onViewportChanged);
+    if (window.ResizeObserver) new ResizeObserver(onViewportChanged).observe(canvas);
+
+    updateMicroAmp();
+    buildLegend();
+    resize();
+    requestAnimationFrame(tick);
+  })();
+  </script>
+</body>
+</html>

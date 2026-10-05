@@ -1,0 +1,28 @@
+<Project>
+  <!-- Visual Studio 发布向导会改写 .pubxml（例如改成依赖于框架、ReadyToRun）。这里强制改回来。 -->
+  <Target Name="ForceUnpackagedWinUIPublishSettings"
+          BeforeTargets="ComputeResolvedFilesToPublishList;GeneratePublishDependencyFile;Publish">
+    <PropertyGroup>
+      <SelfContained>true</SelfContained>
+      <UseAppHost>true</UseAppHost>
+      <PublishReadyToRun>false</PublishReadyToRun>
+      <PublishTrimmed>false</PublishTrimmed>
+      <PublishSingleFile>false</PublishSingleFile>
+      <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    </PropertyGroup>
+  </Target>
+
+  <Target Name="CopyWinUIXamlToPublish" AfterTargets="Publish">
+    <PropertyGroup>
+      <_XamlOutDir>$(MSBuildProjectDirectory)\bin\$(Platform)\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)\</_XamlOutDir>
+      <_XamlOutDir Condition="!Exists('$(_XamlOutDir)$(AssemblyName).pri')">$(OutDir)</_XamlOutDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <_XamlRes Include="$(_XamlOutDir)**\*.xbf" />
+      <_XamlRes Include="$(_XamlOutDir)$(AssemblyName).pri" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_XamlRes)"
+          DestinationFiles="@(_XamlRes->'$(PublishDir)%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="false" />
+  </Target>
+</Project>

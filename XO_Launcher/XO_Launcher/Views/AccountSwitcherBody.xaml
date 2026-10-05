@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="XO_Launcher.Views.AccountSwitcherBody"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:views="using:XO_Launcher.Views">
+
+    <!-- 头像浮层的主体：只做「显示当前是谁 + 切换到别的账号」。
+         皮肤来源、登录、添加离线、删除这些**设置**都回到设置页的「账号」分组里 ——
+         浮层是即时切换的地方，塞满表单既窄不下也容易误点。 -->
+    <StackPanel Spacing="10">
+        <!-- 当前账号这条不给底色：浮层表面是亚克力（开全景时更透），任何实心或半透明色块
+             压上去都会变成一块与浮层脱节的板（先是 CardAlt 的实心深灰，换成 Recessed 仍是灰板）。
+             改成描边轮廓，只靠边框把「这是当前账号」和下面的可切换列表分开。 -->
+        <Border Background="Transparent" CornerRadius="8" Padding="12,10"
+                BorderBrush="{ThemeResource DividerBrush}" BorderThickness="1">
+            <Grid ColumnSpacing="10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <views:PlayerAvatar x:Name="CurrentAvatar" AvatarSize="34" />
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                    <TextBlock x:Name="CurrentNameText" FontSize="14" FontWeight="SemiBold"
+                               Foreground="{ThemeResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis" />
+                    <TextBlock x:Name="CurrentTypeText" FontSize="11" Foreground="{ThemeResource AccentBrush}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <TextBlock Text="切换账号" Style="{StaticResource GroupLabelStyle}" />
+        <ListBox x:Name="AccountList" SelectionMode="Single" Padding="0"
+                 Background="Transparent" BorderThickness="0" MaxHeight="300"
+                 SelectionChanged="AccountList_SelectionChanged">
+            <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem">
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                    <Setter Property="Padding" Value="8,6" />
+                    <Setter Property="Margin" Value="0,0,0,2" />
+                </Style>
+            </ListBox.ItemContainerStyle>
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <Grid ColumnSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <views:PlayerAvatar AvatarSize="26" Account="{Binding}" />
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="0">
+                            <TextBlock Text="{Binding Username}" FontSize="13"
+                                       Foreground="{ThemeResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding TypeLabel}" FontSize="10"
+                                       Foreground="{ThemeResource TextSecondaryBrush}" />
+                        </StackPanel>
+                    </Grid>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <Border Style="{StaticResource CardDividerStyle}" />
+
+        <Button x:Name="ManageButton" Style="{StaticResource NeutralActionButtonStyle}"
+                Content="更多账号设置" HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Center" Click="Manage_Click" />
+        <TextBlock x:Name="StatusText" Style="{StaticResource FieldHintStyle}" TextWrapping="Wrap" />
+    </StackPanel>
+</UserControl>

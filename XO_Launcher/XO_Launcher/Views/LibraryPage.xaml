@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="XO_Launcher.Views.LibraryPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:models="using:XO_Launcher.Models"
+    xmlns:views="using:XO_Launcher.Views"
+    mc:Ignorable="d">
+
+    <UserControl.Resources>
+        <models:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+    </UserControl.Resources>
+
+    <!-- 卡片 / 字号 / 按钮一律引用 App.xaml 的公共样式层，本页不再自定义样式 -->
+    <Grid Background="{ThemeResource AppBackgroundBrush}" Padding="{StaticResource PagePaddingThickness}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- ==================== 标题 + 全局操作 ==================== -->
+        <Grid>
+            <StackPanel Spacing="4" HorizontalAlignment="Left" MaxWidth="620">
+                <TextBlock Text="资源库" Style="{StaticResource PageTitleStyle}" />
+                <TextBlock x:Name="HeaderHint" Style="{StaticResource FieldLabelStyle}" TextWrapping="Wrap" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" VerticalAlignment="Top">
+                <Button Content="导入整合包链接" Style="{StaticResource NeutralActionButtonStyle}" Click="ImportLink_Click" />
+                <Button Content="清理重复" Style="{StaticResource NeutralActionButtonStyle}" Click="Dedupe_Click"
+                        ToolTipService.ToolTip="删除同一模组、同一版本、适配同一批游戏版本的重复文件，每组保留最新的一份" />
+                <Button Content="打开目录" Style="{StaticResource NeutralActionButtonStyle}" Click="OpenFolder_Click" />
+                <Button Content="刷新" Style="{StaticResource NeutralActionButtonStyle}" Click="Refresh_Click" />
+            </StackPanel>
+        </Grid>
+
+        <!-- ==================== 类型切换 + 目标版本 ==================== -->
+        <Grid Grid.Row="1" Margin="{StaticResource SectionGapThickness}" ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel x:Name="KindBar" Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                <Button x:Name="ModKindButton" Content="模组" Tag="mod" Style="{StaticResource ChipButtonStyle}" Click="Kind_Click" />
+                <Button x:Name="ShaderKindButton" Content="光影" Tag="shader" Style="{StaticResource ChipButtonStyle}" Click="Kind_Click" />
+                <Button x:Name="PackKindButton" Content="资源包" Tag="resourcepack" Style="{StaticResource ChipButtonStyle}" Click="Kind_Click" />
+                <Button x:Name="ModpackKindButton" Content="整合包" Tag="modpack" Style="{StaticResource ChipButtonStyle}" Click="Kind_Click" />
+            </StackPanel>
+
+            <TextBlock x:Name="CountText" Grid.Column="1" Style="{StaticResource FieldLabelStyle}"
+                       VerticalAlignment="Center" Margin="4,0,0,0" TextTrimming="CharacterEllipsis" />
+
+            <StackPanel x:Name="TargetPanel" Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <TextBlock Text="安装到" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" />
+                <views:SelectBox x:Name="TargetVersionCombo" Compact="True" MinWidth="220"
+                                 DisplayMemberPath="DisplayName" PlaceholderText="选择游戏版本" />
+            </StackPanel>
+        </Grid>
+
+        <!-- ==================== 资源库内容列表（一张卡片 = 一个游戏版本） ==================== -->
+        <ListView x:Name="GroupList" Grid.Row="2" Margin="0,16,0,0" SelectionMode="None">
+            <ListView.ItemContainerStyle>
+                <Style TargetType="ListViewItem">
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                    <Setter Property="Padding" Value="0" />
+                    <Setter Property="Margin" Value="{StaticResource CardGapThickness}" />
+                    <Setter Property="MinHeight" Value="0" />
+                </Style>
+            </ListView.ItemContainerStyle>
+            <ListView.ItemTemplate>
+                <DataTemplate>
+                    <Border Style="{StaticResource PageCardStyle}">
+                        <StackPanel Spacing="6">
+                            <!-- 卡片标题：模组 / 资源包是游戏版本，光影是光影加载器 -->
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <TextBlock Text="{Binding KindLabel}" Style="{StaticResource MetaTextStyle}" VerticalAlignment="Center" />
+                                <TextBlock Text="{Binding VersionLabel}" Style="{StaticResource CardTitleStyle}" />
+                                <TextBlock Text="{Binding SummaryText}" Style="{StaticResource MetaTextStyle}"
+                                           VerticalAlignment="Center" />
+                            </StackPanel>
+
+                            <!-- 该版本可用的每个文件一行：名称 / 模组版本 / 文件名 + 安装状态 / 操作 -->
+                            <ItemsControl ItemsSource="{Binding Entries}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid ColumnSpacing="12" Margin="0,2,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="2*" />
+                                                <ColumnDefinition Width="1*" />
+                                                <ColumnDefinition Width="2*" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+
+                                            <TextBlock Grid.Column="0" Text="{Binding Name}" Style="{StaticResource BodyTextStyle}"
+                                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="1" Text="{Binding ModVersionText}" Style="{StaticResource MetaTextStyle}"
+                                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding FileName}" Style="{StaticResource MetaTextStyle}"
+                                                           TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="{Binding RowMetaText}" Style="{StaticResource MetaTextStyle}"
+                                                           TextTrimming="CharacterEllipsis" />
+                                            </StackPanel>
+
+                                            <Button Grid.Column="3" Content="更新" Style="{StaticResource NeutralActionButtonStyle}"
+                                                    Click="Update_Click"
+                                                    ToolTipService.ToolTip="在资源库里下载新版本，并可同步替换已装它的版本"
+                                                    Visibility="{Binding CanCheckUpdate, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                            <Button Grid.Column="4" Content="安装到版本" Style="{StaticResource PrimaryActionButtonStyle}"
+                                                    Click="Install_Click"
+                                                    Visibility="{Binding CanInstall, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                            <Button Grid.Column="5" Content="删除" Style="{StaticResource DangerActionButtonStyle}"
+                                                    Click="Delete_Click" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+
+        <TextBlock x:Name="EmptyText" Grid.Row="2" Style="{StaticResource BodyTextStyle}"
+                   HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center"
+                   MaxWidth="460" Visibility="Collapsed" />
+
+        <TextBlock x:Name="StatusText" Grid.Row="3" Style="{StaticResource MetaTextStyle}"
+                   Margin="0,8,0,0" TextWrapping="Wrap" />
+    </Grid>
+</UserControl>

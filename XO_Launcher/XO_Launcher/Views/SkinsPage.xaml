@@ -1,0 +1,376 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="XO_Launcher.Views.SkinsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:views="using:XO_Launcher.Views"
+    mc:Ignorable="d">
+
+    <!-- PreviewKeyDown 挂在页面根：隧道事件最先到达，画布、工具按钮、色板任何一处有焦点
+         快捷键都生效。原来只挂在 CanvasSurface 上，点过工具条后焦点离开画布，快捷键就哑了。 -->
+    <Grid Padding="{StaticResource PagePaddingThickness}" ColumnSpacing="12" PreviewKeyDown="Page_PreviewKeyDown">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="216" />
+            <ColumnDefinition Width="*" MinWidth="360" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+
+        <!-- ==================== 左：工具栏 ====================
+             原先工具条横压在画布上方，宽度不够就横向滚动 —— 想看的工具得先滚才见得到。
+             竖排后所有工具同屏可见，画布也拿回了整块横向空间。 -->
+        <Border Grid.Column="0" Style="{StaticResource PageCardStyle}">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                          HorizontalScrollMode="Disabled" VerticalScrollMode="Auto">
+                <StackPanel Spacing="14">
+
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="部位" Style="{StaticResource GroupLabelStyle}" />
+                        <Grid ColumnSpacing="4" RowSpacing="4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <!-- 必须显式声明 4 行：Grid 只会把超出行数的子元素塞进最后一行，
+                                 少了这些定义时 6 个部位按钮会全部叠在第一行互相盖住。 -->
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Button x:Name="PartHeadButton" Style="{StaticResource ChipButtonStyle}" Content="头" Tag="head" Click="Part_Click" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+                            <Button x:Name="PartBodyButton" Style="{StaticResource ChipButtonStyle}" Grid.Column="1" Content="身体" Tag="body" Click="Part_Click" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+                            <Button x:Name="PartRightArmButton" Style="{StaticResource ChipButtonStyle}" Grid.Row="1" Content="右臂" Tag="rightarm" Click="Part_Click" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+                            <Button x:Name="PartLeftArmButton" Style="{StaticResource ChipButtonStyle}" Grid.Row="1" Grid.Column="1" Content="左臂" Tag="leftarm" Click="Part_Click" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+                            <Button x:Name="PartRightLegButton" Style="{StaticResource ChipButtonStyle}" Grid.Row="2" Content="右腿" Tag="rightleg" Click="Part_Click" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+                            <Button x:Name="PartLeftLegButton" Style="{StaticResource ChipButtonStyle}" Grid.Row="2" Grid.Column="1" Content="左腿" Tag="leftleg" Click="Part_Click" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+                            <Button x:Name="PartWholeButton" Style="{StaticResource ChipButtonStyle}" Grid.Row="3" Grid.ColumnSpan="2"
+                                    Content="整张贴图" Tag="whole" Click="Part_Click" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                    ToolTipService.ToolTip="直接编辑 64×64 原始贴图，不拆部位" />
+                        </Grid>
+                    </StackPanel>
+
+                    <Border Style="{StaticResource CardDividerStyle}" />
+
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="工具" Style="{StaticResource GroupLabelStyle}" />
+                        <!-- 九种工具 3×3：字形取自 Assets/Fonts/FluentSystemIcons-Filled.ttf，
+                             没有文字所以 ToolTip 必须写全（名称 + 快捷键）。 -->
+                        <Grid ColumnSpacing="4" RowSpacing="4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <!-- 同上：3×3 工具必须声明满 3 行，否则第二、三行会全部塌回第一行 -->
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Button x:Name="ToolPencilButton" Style="{StaticResource ChipIconButtonStyle}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Tag="pencil" Click="Tool_Click" ToolTipService.ToolTip="铅笔 (B)：按住拖动连续落笔">
+                                <FontIcon FontFamily="{StaticResource IconFontFamily}" Glyph="&#xE8E9;" FontSize="16" />
+                            </Button>
+                            <Button x:Name="ToolEraserButton" Style="{StaticResource ChipIconButtonStyle}" Grid.Column="1" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Tag="eraser" Click="Tool_Click" ToolTipService.ToolTip="橡皮 (E)：擦掉当前层像素">
+                                <FontIcon FontFamily="{StaticResource IconFontFamily}" Glyph="&#xE5F1;" FontSize="16" />
+                            </Button>
+                            <Button x:Name="ToolLineButton" Style="{StaticResource ChipIconButtonStyle}" Grid.Column="2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Tag="line" Click="Tool_Click" ToolTipService.ToolTip="直线 (L)：按住 Shift 强制水平 / 垂直">
+                                <FontIcon FontFamily="{StaticResource IconFontFamily}" Glyph="&#xE773;" FontSize="16" />
+                            </Button>
+                            <Button x:Name="ToolRectButton" Style="{StaticResource ChipIconButtonStyle}" Grid.Row="1" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Tag="rect" Click="Tool_Click" ToolTipService.ToolTip="空心矩形 (U)">
+                                <FontIcon FontFamily="{StaticResource IconFontFamily}" Glyph="&#xEB8F;" FontSize="16" />
+                            </Button>
+                            <Button x:Name="ToolRectFillButton" Style="{StaticResource ChipIconButtonStyle}" Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Tag="rectfill" Click="Tool_Click" ToolTipService.ToolTip="实心矩形">
+                                <FontIcon FontFamily="{StaticResource IconFontFamily}" Glyph="&#xEB7E;" FontSize="16" />
+                            </Button>
+                            <Button x:Name="ToolBucketButton" Style="{StaticResource ChipIconButtonStyle}" Grid.Row="1" Grid.Column="2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Tag="bucket" Click="Tool_Click" ToolTipService.ToolTip="油漆桶 (G)：只填落点所在的单个面">
+                                <FontIcon FontFamily="{StaticResource IconFontFamily}" Glyph="&#xF59F;" FontSize="16" />
+                            </Button>
+                            <Button x:Name="ToolDarkenButton" Style="{StaticResource ChipIconButtonStyle}" Grid.Row="2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Tag="darken" Click="Tool_Click" ToolTipService.ToolTip="明暗笔·加深：沿线压暗，不改 Alpha">
+                                <FontIcon FontFamily="{StaticResource IconFontFamily}" Glyph="&#xE211;" FontSize="16" />
+                            </Button>
+                            <Button x:Name="ToolLightenButton" Style="{StaticResource ChipIconButtonStyle}" Grid.Row="2" Grid.Column="1" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Tag="lighten" Click="Tool_Click" ToolTipService.ToolTip="明暗笔·变亮：沿线提亮，不改 Alpha">
+                                <FontIcon FontFamily="{StaticResource IconFontFamily}" Glyph="&#xE20B;" FontSize="16" />
+                            </Button>
+                            <Button x:Name="ToolPickerButton" Style="{StaticResource ChipIconButtonStyle}" Grid.Row="2" Grid.Column="2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Tag="picker" Click="Tool_Click" ToolTipService.ToolTip="取色器 (I)：点画布取该点颜色">
+                                <FontIcon FontFamily="{StaticResource IconFontFamily}" Glyph="&#xE60A;" FontSize="16" />
+                            </Button>
+                        </Grid>
+                    </StackPanel>
+
+                    <StackPanel Spacing="6">
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="笔刷" Style="{StaticResource FieldLabelStyle}" />
+                                <views:SelectBox x:Name="BrushSizeCombo" Compact="True" HorizontalAlignment="Stretch"
+                                                 SelectionChanged="BrushSize_Changed" ToolTipService.ToolTip="笔刷大小。也可以 [ ] 加减">
+                                    <views:SelectBox.Items>
+                                        <views:SelectBoxItem Content="1 px" Tag="1" />
+                                        <views:SelectBoxItem Content="2 px" Tag="2" />
+                                        <views:SelectBoxItem Content="3 px" Tag="3" />
+                                        <views:SelectBoxItem Content="4 px" Tag="4" />
+                                    </views:SelectBox.Items>
+                                </views:SelectBox>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Spacing="4">
+                                <TextBlock Text="缩放" Style="{StaticResource FieldLabelStyle}" />
+                                <views:SelectBox x:Name="ZoomCombo" Compact="True" HorizontalAlignment="Stretch"
+                                                 SelectionChanged="Zoom_Changed"
+                                                 ToolTipService.ToolTip="画布缩放。也可以 Ctrl+滚轮、Ctrl +/− 调节，Ctrl+0 回到 8×">
+                                    <views:SelectBox.Items>
+                                        <views:SelectBoxItem Content="2×" Tag="2" />
+                                        <views:SelectBoxItem Content="4×" Tag="4" />
+                                        <views:SelectBoxItem Content="6×" Tag="6" />
+                                        <views:SelectBoxItem Content="8×" Tag="8" />
+                                        <views:SelectBoxItem Content="12×" Tag="12" />
+                                        <views:SelectBoxItem Content="16×" Tag="16" />
+                                    </views:SelectBox.Items>
+                                </views:SelectBox>
+                            </StackPanel>
+                        </Grid>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="历史" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" />
+                            <Button x:Name="UndoButton" Style="{StaticResource NeutralActionIconButtonStyle}" Click="Undo_Click" ToolTipService.ToolTip="撤销 (Ctrl+Z)">
+                                <FontIcon FontFamily="{StaticResource IconFontFamily}" Glyph="&#xF199;" FontSize="16" />
+                            </Button>
+                            <Button x:Name="RedoButton" Style="{StaticResource NeutralActionIconButtonStyle}" Click="Redo_Click" ToolTipService.ToolTip="重做 (Ctrl+Y)">
+                                <FontIcon FontFamily="{StaticResource IconFontFamily}" Glyph="&#xF16E;" FontSize="16" />
+                            </Button>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <Border Style="{StaticResource CardDividerStyle}" />
+
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="编辑图层" Style="{StaticResource GroupLabelStyle}" />
+                        <RadioButton x:Name="BaseLayerRadio" Content="基础层" GroupName="SkinLayer" Click="Layer_Changed" ToolTipService.ToolTip="身体本体 (1)" />
+                        <RadioButton x:Name="OverlayLayerRadio" Content="覆盖层" GroupName="SkinLayer" Click="Layer_Changed" ToolTipService.ToolTip="帽子 / 夹克 / 袖子 / 裤腿 (2)" />
+                        <StackPanel Spacing="2" Margin="0,6,0,0">
+                            <ToggleSwitch x:Name="GridToggle" Header="网格" OnContent="" OffContent="" MinWidth="0" Toggled="GridToggle_Toggled" />
+                            <ToggleSwitch x:Name="MirrorToggle" Header="左右镜像" OnContent="" OffContent="" MinWidth="0" Toggled="MirrorToggle_Toggled" />
+                            <ToggleSwitch x:Name="GhostOtherToggle" Header="参考另一层" OnContent="" OffContent="" MinWidth="0" Toggled="GhostOtherToggle_Toggled" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <Border Style="{StaticResource CardDividerStyle}" />
+
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="颜色" Style="{StaticResource GroupLabelStyle}" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Border x:Name="ColorSwatch" Width="30" Height="30" CornerRadius="6" BorderThickness="1"
+                                    BorderBrush="{ThemeResource DividerBrush}" VerticalAlignment="Center" />
+                            <Button Style="{StaticResource NeutralActionIconButtonStyle}" Click="CustomColor_Click"
+                                    ToolTipService.ToolTip="自定义颜色…" VerticalAlignment="Center">
+                                <FontIcon FontFamily="{StaticResource IconFontFamily}" Glyph="&#xF2F5;" FontSize="16" />
+                            </Button>
+                        </StackPanel>
+                        <!-- 色板由 BuildPalette 生成，列数与这里的宽度匹配（6 列） -->
+                        <Grid x:Name="PaletteHost" />
+                    </StackPanel>
+
+                    <Border Style="{StaticResource CardDividerStyle}" />
+
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="起步模板" Style="{StaticResource GroupLabelStyle}" />
+                        <Button x:Name="TemplateSteveButton" Style="{StaticResource NeutralActionButtonStyle}" Content="Steve 模板" Tag="steve" Click="Template_Click" HorizontalAlignment="Stretch" />
+                        <Button x:Name="TemplateAlexButton" Style="{StaticResource NeutralActionButtonStyle}" Content="Alex 模板" Tag="alex" Click="Template_Click" HorizontalAlignment="Stretch" />
+                        <Button x:Name="TemplateBlankButton" Style="{StaticResource NeutralActionButtonStyle}" Content="空白画布" Tag="blank" Click="Template_Click" HorizontalAlignment="Stretch" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="文件" Style="{StaticResource GroupLabelStyle}" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button x:Name="ImportPngButton" Style="{StaticResource NeutralActionIconButtonStyle}" Click="ImportPng_Click" ToolTipService.ToolTip="导入 PNG 皮肤到画布…">
+                                <FontIcon FontFamily="{StaticResource IconFontFamily}" Glyph="&#xF432;" FontSize="16" />
+                            </Button>
+                            <Button x:Name="ExportPngButton" Style="{StaticResource NeutralActionIconButtonStyle}" Click="ExportPng_Click" ToolTipService.ToolTip="导出皮肤文件（64×64 .png）">
+                                <FontIcon FontFamily="{StaticResource IconFontFamily}" Glyph="&#xF150;" FontSize="16" />
+                            </Button>
+                            <Button x:Name="ExportSheetButton" Style="{StaticResource NeutralActionIconButtonStyle}" Click="ExportSheet_Click" ToolTipService.ToolTip="导出预览图（人形立绘 .png）">
+                                <FontIcon FontFamily="{StaticResource IconFontFamily}" Glyph="&#xF48F;" FontSize="16" />
+                            </Button>
+                            <Button x:Name="ClearLayerButton" Style="{StaticResource DangerActionIconButtonStyle}" Click="ClearLayer_Click" ToolTipService.ToolTip="清空当前层（只清正在编辑的那一层）">
+                                <FontIcon FontFamily="{StaticResource IconFontFamily}" Glyph="&#xF34C;" FontSize="16" />
+                            </Button>
+                        </StackPanel>
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+
+        <!-- ==================== 中：画布 ==================== -->
+        <Border Grid.Column="1" Style="{StaticResource PageCardStyle}">
+            <Grid RowSpacing="10">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0" ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="皮肤编辑器" Style="{StaticResource PageTitleStyle}" VerticalAlignment="Center" />
+                    <Expander Grid.Column="1" Header="用法" VerticalAlignment="Center" HorizontalAlignment="Right">
+                        <TextBlock Style="{StaticResource BodyTextStyle}" TextWrapping="Wrap" MaxWidth="520"
+                                   Margin="0,6,0,2"
+                                   Text="先选一个身体部位，画布只显示这个部位（摊成纸模的样子），画完自动拼回整张 64×64 皮肤。左键画、右键擦；基础层是身体本体，覆盖层叠在上面（帽子、夹克、袖子、裤腿）。直线 / 矩形工具按住拖出，松开落笔。" />
+                    </Expander>
+                </Grid>
+
+                <ScrollViewer Grid.Row="1" x:Name="CanvasScroll"
+                              HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollMode="Auto" VerticalScrollMode="Auto" ZoomMode="Disabled"
+                              Padding="0,0,4,4">
+                    <Border Background="{ThemeResource CardAltBackgroundBrush}" CornerRadius="8" Padding="10"
+                            HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Grid x:Name="CanvasSurface" Background="Transparent"
+                              PointerPressed="Canvas_PointerPressed"
+                              PointerMoved="Canvas_PointerMoved"
+                              PointerReleased="Canvas_PointerReleased"
+                              PointerCanceled="Canvas_PointerReleased"
+                              PointerCaptureLost="Canvas_PointerReleased"
+                              PointerExited="Canvas_PointerExited">
+                            <Image x:Name="GhostLayerImage" Stretch="Fill" IsHitTestVisible="False" />
+                            <Image x:Name="CanvasImage" Stretch="Fill" IsHitTestVisible="False" />
+                            <Canvas x:Name="GridOverlay" IsHitTestVisible="False" />
+                            <Canvas x:Name="ShapeOverlay" IsHitTestVisible="False">
+                                <Rectangle x:Name="ShapeRect" Stroke="{ThemeResource AccentBrush}" StrokeThickness="1"
+                                           Visibility="Collapsed" IsHitTestVisible="False" />
+                                <Line x:Name="ShapeLine" Stroke="{ThemeResource AccentBrush}" StrokeThickness="1"
+                                      Visibility="Collapsed" IsHitTestVisible="False" />
+                            </Canvas>
+                            <Border x:Name="CursorBox" Width="16" Height="16" BorderThickness="1"
+                                    BorderBrush="{ThemeResource AccentBrush}" Background="Transparent"
+                                    HorizontalAlignment="Left" VerticalAlignment="Top"
+                                    Visibility="Collapsed" IsHitTestVisible="False" />
+                        </Grid>
+                    </Border>
+                </ScrollViewer>
+
+                <!-- 状态行常驻：它是画布当前的反馈，不该藏进展开器 -->
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10">
+                    <TextBlock x:Name="EditorScopeText" Style="{StaticResource GroupLabelStyle}" VerticalAlignment="Center" />
+                    <TextBlock x:Name="EditorStatusText" Style="{StaticResource FieldHintStyle}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                    <Expander Header="说明" VerticalAlignment="Center">
+                        <TextBlock Style="{StaticResource FieldHintStyle}" TextWrapping="Wrap" MaxWidth="560"
+                                   Text="「皮肤文件」是游戏用的 64×64 贴图（平铺展开形，不是人形）。右侧 3D 预览即它在游戏里的样子，或点左栏「文件」里的图片图标（悬停显示「导出预览图」）存一张人形立绘。快捷键：B 铅笔 / E 橡皮 / G 油漆桶 / I 取色 / L 直线 / U 矩形，[ ] 笔刷大小，1 / 2 切基础层·覆盖层，+ − 或 Ctrl+滚轮 缩放画布（Ctrl+0 回到 8×），Ctrl+Z 撤销 / Ctrl+Y 重做 / Ctrl+S 保存到账号。工具与动作按钮是图标，把鼠标停在上面即可看到名称。" />
+                    </Expander>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ==================== 右：保存 / 预览（竖向折叠，不是一条窄边） ==================== -->
+        <ScrollViewer Grid.Column="2" x:Name="RailScroll" Width="372" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollMode="Disabled" VerticalScrollMode="Auto">
+            <StackPanel Spacing="12">
+                <!-- 折叠 = 把整栏内容沿竖向折起来，只留这一行标题，同时把栏宽收到 172。
+                     中间画布是 * 列，于是自动变大；SkinViewer 不销毁，展开后预览还在。 -->
+                <Button x:Name="RailFoldButton" Style="{StaticResource SectionToggleHeaderStyle}"
+                        HorizontalAlignment="Stretch" Click="Rail_Toggle_Click"
+                        ToolTipService.ToolTip="竖向折叠 / 展开「账号与预览」，折叠后画布自动变大">
+                    <Grid ColumnSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="账号与预览" Style="{StaticResource SectionTitleStyle}" VerticalAlignment="Center" />
+                        <FontIcon x:Name="RailFoldChevron" Grid.Column="1" FontFamily="{StaticResource IconFontFamily}"
+                                  Glyph="&#xF2B6;" FontSize="14" VerticalAlignment="Center"
+                                  Foreground="{ThemeResource TextSecondaryBrush}" />
+                    </Grid>
+                </Button>
+
+                <StackPanel x:Name="RailBody" Spacing="12">
+                    <Border Style="{StaticResource PageCardStyle}">
+                        <StackPanel Spacing="10">
+                            <Button Style="{StaticResource SectionToggleHeaderStyle}" Tag="save" Click="Section_Toggle_Click"
+                                    ToolTipService.ToolTip="折叠 / 展开「保存到账号」">
+                                <Grid ColumnSpacing="10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="保存到账号" Style="{StaticResource SectionTitleStyle}" VerticalAlignment="Center" />
+                                    <FontIcon x:Name="SaveSectionChevron" Grid.Column="1" FontFamily="{StaticResource IconFontFamily}"
+                                              Glyph="&#xF2B6;" FontSize="14" VerticalAlignment="Center"
+                                              Foreground="{ThemeResource TextSecondaryBrush}" />
+                                </Grid>
+                            </Button>
+                            <StackPanel x:Name="SaveSectionBody" Spacing="10">
+                                <Border Background="{ThemeResource CardAltBackgroundBrush}" CornerRadius="10" Padding="14">
+                                    <StackPanel Spacing="4">
+                                        <TextBlock x:Name="AccountNameText" Style="{StaticResource CardTitleStyle}" />
+                                        <TextBlock x:Name="AccountTypeText" Style="{StaticResource MetaTextStyle}" Foreground="{ThemeResource AccentBrush}" />
+                                        <TextBlock x:Name="AccountSkinSourceText" Style="{StaticResource MetaTextStyle}" />
+                                    </StackPanel>
+                                </Border>
+                                <!-- 模型和皮肤来源都留在画布这边：纤细与否直接改变手臂宽度，
+                                     而「游戏里用哪张贴图」是画完立刻想验证的事，不该跑到别的页面去切。 -->
+                                <StackPanel x:Name="ModelRow" Spacing="6">
+                                    <TextBlock Text="模型" Style="{StaticResource GroupLabelStyle}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Button x:Name="ModelClassicButton" Style="{StaticResource ChipButtonStyle}" Content="经典 Steve"
+                                                Tag="classic" Click="Model_Click" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                                ToolTipService.ToolTip="4 像素手臂" />
+                                        <Button x:Name="ModelSlimButton" Style="{StaticResource ChipButtonStyle}" Content="纤细 Alex"
+                                                Tag="slim" Click="Model_Click" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                                ToolTipService.ToolTip="3 像素手臂" />
+                                    </StackPanel>
+                                </StackPanel>
+                                <views:SkinSourceEditor />
+                                <TextBlock Style="{StaticResource FieldHintStyle}" TextWrapping="Wrap"
+                                           Text="保存会把画布写入该账号的本地皮肤文件。微软正版账号会额外上传到 Mojang，游戏内立即生效；离线账号没有官方皮肤服务器，只能在本启动器内预览。换账号后互不影响。" />
+                                <Button x:Name="SaveToAccountButton" Style="{StaticResource PrimaryActionButtonStyle}" Content="保存为当前账号的皮肤" HorizontalAlignment="Stretch" Click="SaveToAccount_Click" ToolTipService.ToolTip="保存到当前账号 (Ctrl+S)" />
+                                <TextBlock x:Name="SaveStatusText" Style="{StaticResource FieldHintStyle}" />
+                                <TextBlock x:Name="SkinStatusText" Style="{StaticResource FieldHintStyle}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource PageCardStyle}">
+                        <StackPanel Spacing="10">
+                            <Button Style="{StaticResource SectionToggleHeaderStyle}" Tag="preview" Click="Section_Toggle_Click"
+                                    ToolTipService.ToolTip="折叠 / 展开「预览」">
+                                <Grid ColumnSpacing="10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="预览" Style="{StaticResource SectionTitleStyle}" VerticalAlignment="Center" />
+                                    <FontIcon x:Name="PreviewSectionChevron" Grid.Column="1" FontFamily="{StaticResource IconFontFamily}"
+                                              Glyph="&#xF2B6;" FontSize="14" VerticalAlignment="Center"
+                                              Foreground="{ThemeResource TextSecondaryBrush}" />
+                                </Grid>
+                            </Button>
+                            <StackPanel x:Name="PreviewSectionBody" Spacing="10">
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="头部（编辑器画布实时渲染）" Style="{StaticResource GroupLabelStyle}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <Border Background="{ThemeResource CardAltBackgroundBrush}" CornerRadius="8" Padding="10">
+                                            <Image x:Name="PreviewHeadImage" Width="80" Height="80" Stretch="Fill" />
+                                        </Border>
+                                        <TextBlock Style="{StaticResource FieldHintStyle}" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="200" Text="由画布上的「头部正面 + 帽子层」直接合成，不依赖网络。" />
+                                    </StackPanel>
+                                </StackPanel>
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="3D 预览" Style="{StaticResource GroupLabelStyle}" />
+                                    <views:SkinViewerControl x:Name="SkinViewer" Width="300" Height="360" />
+                                </StackPanel>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+
+    </Grid>
+</UserControl>

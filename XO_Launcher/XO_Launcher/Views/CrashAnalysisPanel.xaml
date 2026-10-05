@@ -1,0 +1,41 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="XO_Launcher.Views.CrashAnalysisPanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:views="using:XO_Launcher.Views">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Spacing="4" Margin="0,0,0,10">
+            <TextBlock x:Name="KindText" FontSize="12" Foreground="{ThemeResource TextSecondaryBrush}" />
+            <TextBlock x:Name="HeadlineText" Style="{StaticResource CardTitleStyle}" TextWrapping="Wrap" />
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled">
+            <StackPanel x:Name="FindingsHost" Spacing="8" />
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="2" Spacing="6" Margin="0,12,0,0">
+            <TextBlock Text="日志摘录" FontSize="12" Foreground="{ThemeResource TextSecondaryBrush}" />
+            <views:TextInput x:Name="ExcerptBox" IsReadOnly="True"
+                             FontFamily="Consolas, Cascadia Mono, Courier New" FontSize="11"
+                             AcceptsReturn="True" TextWrapping="Wrap"
+                             MinHeight="88" MaxHeight="140" VerticalAlignment="Stretch" />
+        </StackPanel>
+
+        <StackPanel x:Name="ActionsBar" Grid.Row="3" Orientation="Horizontal" Spacing="8" Margin="0,12,0,0">
+            <Button Style="{StaticResource NeutralActionButtonStyle}" Content="重新分析" Click="Refresh_Click" />
+            <Button Style="{StaticResource NeutralActionButtonStyle}" Content="选择日志文件" Click="PickFile_Click" />
+            <Button Style="{StaticResource PrimaryActionButtonStyle}" Content="导出崩溃日志" Click="Export_Click" />
+            <TextBlock x:Name="StatusText" FontSize="11" Foreground="{ThemeResource TextSecondaryBrush}"
+                       VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="280" />
+        </StackPanel>
+    </Grid>
+</UserControl>

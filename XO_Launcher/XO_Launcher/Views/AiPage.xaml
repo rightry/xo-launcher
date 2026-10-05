@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="XO_Launcher.Views.AiPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:views="using:XO_Launcher.Views"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <!-- ==================== AI 助手 ====================
+         重做后的版式：顶栏与下载页/设置页同一条通栏浅底 + 1px 下边框；
+         对话与输入框都收在 900 宽的一栏里居中 —— 宽窗口下气泡横贯整屏会读不下去。 -->
+    <Grid Background="{ThemeResource AppBackgroundBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="{ThemeResource SidebarBackgroundBrush}"
+                BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,0,0,1" Padding="24,10,24,10">
+            <Grid ColumnSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Spacing="2" VerticalAlignment="Center">
+                    <TextBlock Text="AI" FontSize="17" FontWeight="SemiBold"
+                               Foreground="{ThemeResource TextPrimaryBrush}" />
+                    <TextBlock x:Name="SubtitleText" Text="遇到来自我的世界的问题，它都可以帮你 " FontSize="12"
+                               Foreground="{ThemeResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Button Style="{StaticResource NeutralActionButtonStyle}" x:Name="RetryLastButton"
+                            Content="重试" Click="RetryLast_Click" Visibility="Collapsed" />
+                    <Button Style="{StaticResource NeutralActionButtonStyle}" Content="清空" Click="Clear_Click" />
+                    <Button Style="{StaticResource NeutralActionButtonStyle}" Content="设置" Click="OpenSettings_Click" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Border x:Name="SetupBanner" Grid.Row="1" Visibility="Collapsed"
+                Background="{ThemeResource CardAcrylicBrush}" Padding="24,10,24,10">
+            <TextBlock x:Name="BannerText" MaxWidth="900" HorizontalAlignment="Center" FontSize="12"
+                       Foreground="{ThemeResource TextSecondaryBrush}" TextWrapping="Wrap" VerticalAlignment="Center" />
+        </Border>
+
+        <Grid Grid.Row="2">
+            <ScrollViewer x:Name="ChatScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled"
+                          HorizontalScrollBarVisibility="Disabled" Padding="24,18,24,8">
+                <!-- 这里不能写 MaxWidth：ScrollViewer 用无限宽度量内容，MaxWidth 会退化成
+                     「收缩到最宽那个气泡的宽度」，整栏跟着偏移（就是之前所有页面偏右的原因）。
+                     可读性靠卡片自身的 MaxWidth（用户 560 / AI 680）与毛玻璃底解决。 -->
+                <StackPanel x:Name="ChatHost" Spacing="16" />
+            </ScrollViewer>
+
+            <!-- 空状态：套一层亚克力底，开全景背景时灰字压在画面上才读得清 -->
+            <Border x:Name="EmptyPanel" VerticalAlignment="Center" HorizontalAlignment="Center"
+                    Background="{ThemeResource CardAcrylicBrush}" BorderBrush="{ThemeResource DividerBrush}"
+                    BorderThickness="1" CornerRadius="14" Padding="30,24,30,26" Visibility="Collapsed">
+                <StackPanel Spacing="14" MaxWidth="640">
+                    <Border Width="56" Height="56" CornerRadius="16" Background="{ThemeResource AccentDarkBrush}"
+                            HorizontalAlignment="Center">
+                        <FontIcon FontFamily="{StaticResource IconFontFamily}" Glyph="&#xEB3C;" FontSize="24"
+                                  Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <TextBlock Text="有什么可以帮你？" FontSize="18" FontWeight="SemiBold" TextAlignment="Center"
+                               Foreground="{ThemeResource TextPrimaryBrush}" />
+                    <TextBlock FontSize="13" TextAlignment="Center" TextWrapping="Wrap"
+                               Foreground="{ThemeResource TextSecondaryBrush}"
+                               Text="我可以问启动失败、模组冲突、Java 版本或内存分配；也能让我直接查版本信息、检索并安装模组。" />
+                    <StackPanel Spacing="8" HorizontalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                            <Button Style="{StaticResource ChipButtonStyle}" Content="分析崩溃" Click="SuggestCrash_Click" />
+                            <Button Style="{StaticResource ChipButtonStyle}" Content="当前版本该用什么 Java？" Click="SuggestJava_Click" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                            <Button Style="{StaticResource ChipButtonStyle}" Content="推荐适合这个版本的优化模组" Click="SuggestMods_Click" />
+                            <Button Style="{StaticResource ChipButtonStyle}" Content="内存该分配多少？" Click="SuggestMemory_Click" />
+                        </StackPanel>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- 输入区：一张卡片承载多行输入 + 发送/停止，底下留一句能力说明。
+             与对话区同宽（都不设 MaxWidth），否则宽窗口下气泡栏和输入框会错开。 -->
+        <Border Grid.Row="3" Padding="24,8,24,18">
+            <Border Background="{ThemeResource CardAcrylicBrush}"
+                    BorderBrush="{ThemeResource DividerBrush}" BorderThickness="1" CornerRadius="12" Padding="14,10,14,10">
+                <Grid RowSpacing="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <views:TextInput x:Name="InputBox" Chromeless="True" AcceptsReturn="True" TextWrapping="Wrap"
+                                     MaxHeight="140" VerticalAlignment="Stretch" KeyDown="InputBox_KeyDown"
+                                     PlaceholderText="今天也想看到你的提问" />
+                    <Grid Grid.Row="1" ColumnSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <!-- 就地换模型：三档都是 OpenRouter 免费池，被限流时不必跳去设置页 -->
+                            <views:SelectBox x:Name="ModelSelect" Compact="True"
+                                             MinWidth="230" VerticalAlignment="Center" DisplayMemberPath="Label"
+                                             SelectionChanged="ModelSelect_SelectionChanged"
+                                             ToolTipService.ToolTip="切换模型" />
+                            <!-- 就地换权限档：自动档会连删除操作一起静默执行，所以文案与提示都要把风险说清 -->
+                            <views:SelectBox x:Name="PermissionSelect" Compact="True" MinWidth="132"
+                                             VerticalAlignment="Center" SelectionChanged="PermissionSelect_SelectionChanged"
+                                             ToolTipService.ToolTip="AI 工具权限：「每次确认」下所有工具调用都要你点确认；「全部自动」直接执行，包括删除资源库文件" >
+                                <views:SelectBox.Items>
+                                    <views:SelectBoxItem Content="每次确认" Tag="confirm" />
+                                    <views:SelectBoxItem Content="全部自动" Tag="auto" />
+                                </views:SelectBox.Items>
+                            </views:SelectBox>
+                        </StackPanel>
+                        <TextBlock Grid.Column="1" FontSize="11" VerticalAlignment="Center" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextTertiaryBrush}"
+                                   Text="回答由 AI 生成，可能不准确。" />
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="StopButton" Width="36" Height="36" Padding="0" Visibility="Collapsed"
+                                    Background="{ThemeResource DangerButtonBrush}"
+                                    Foreground="{ThemeResource DangerButtonForegroundBrush}"
+                                    BorderThickness="0" CornerRadius="6" Click="Stop_Click" ToolTipService.ToolTip="停止">
+                                <FontIcon FontFamily="{StaticResource IconFontFamily}" Glyph="&#xF742;" FontSize="14" />
+                            </Button>
+                            <Button x:Name="SendButton" Width="36" Height="36" Padding="0"
+                                    Background="{ThemeResource AccentBrush}" Foreground="{ThemeResource AccentOnBrush}"
+                                    BorderThickness="0" CornerRadius="6" Click="Send_Click" ToolTipService.ToolTip="发送">
+                                <FontIcon FontFamily="{StaticResource IconFontFamily}" Glyph="&#xF6A2;" FontSize="14" />
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </Border>
+        </Border>
+    </Grid>
+</UserControl>

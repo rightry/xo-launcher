@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="XO_Launcher.Views.OnlinePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:views="using:XO_Launcher.Views"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <!-- ==================== 布局基调：按状态给面板 ====================
+         上一版把「房间码 / 加入 / 连接地址 / 成员」全铺在同一页，没建房时满屏是空壳，
+         看不出下一步该点什么。现在改成：顶部一张状态卡说清「现在是什么情况」，
+         下面按角色只给一块面板 —— 空闲=两张选择卡，房主=房间码+成员，加入=连接地址+成员。
+         侧栏仍是使用提示，宽窗口并排、窄窗口堆到下方（AdaptiveTrigger 960）。 -->
+    <Grid Background="{ThemeResource AppBackgroundBrush}" Padding="{StaticResource PagePaddingThickness}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Spacing="4">
+            <TextBlock Text="快捷联机" Style="{StaticResource PageTitleStyle}" />
+            <TextBlock Style="{StaticResource FieldHintStyle}"
+                       Text="使用陶瓦联机（Terracotta / EasyTier）与好友开黑，无需公网 IP。仅支持 Minecraft Java 版。" />
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" Margin="0,20,0,0" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled">
+            <Grid x:Name="LayoutGrid" MaxWidth="1680" HorizontalAlignment="Stretch" ColumnSpacing="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" MinWidth="0" />
+                    <ColumnDefinition x:Name="SideColumn" Width="0" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <VisualStateManager.VisualStateGroups>
+                    <VisualStateGroup x:Name="LayoutStates">
+                        <VisualState x:Name="NarrowLayout" />
+                        <VisualState x:Name="WideLayout">
+                            <!-- 960：窗口宽 960 减左右各 32 内边距 = 内容区 896，扣掉侧栏 360
+                                 与列间距 32 后主栏剩 504，正好容得下大号等宽房间码那一行。 -->
+                            <VisualState.StateTriggers>
+                                <AdaptiveTrigger MinWindowWidth="960" />
+                            </VisualState.StateTriggers>
+                            <VisualState.Setters>
+                                <Setter Target="LayoutGrid.ColumnSpacing" Value="32" />
+                                <Setter Target="SideColumn.Width" Value="360" />
+                                <Setter Target="SidePanel.(Grid.Column)" Value="1" />
+                                <Setter Target="SidePanel.(Grid.Row)" Value="0" />
+                                <Setter Target="SidePanel.Margin" Value="0" />
+                            </VisualState.Setters>
+                        </VisualState>
+                    </VisualStateGroup>
+                </VisualStateManager.VisualStateGroups>
+
+                <StackPanel Grid.Column="0" Grid.Row="0" Spacing="12">
+
+                    <!-- ==================== 状态卡：现在是什么情况 ==================== -->
+                    <Border Style="{StaticResource PageCardStyle}">
+                        <Grid ColumnSpacing="14">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Grid Width="44" Height="44" VerticalAlignment="Center">
+                                <Ellipse Fill="{ThemeResource AccentSoftBrush}" />
+                                <FontIcon FontFamily="{StaticResource IconFontFamily}" Glyph="&#xF3D9;" FontSize="18"
+                                          Foreground="{ThemeResource AccentBrush}"
+                                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Grid>
+                            <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+                                <TextBlock x:Name="StatusTitle" Text="正在准备陶瓦联机…" FontSize="15" FontWeight="SemiBold"
+                                           Foreground="{ThemeResource TextPrimaryBrush}" TextWrapping="Wrap" />
+                                <TextBlock x:Name="StatusDetail" Text="" FontSize="12"
+                                           Foreground="{ThemeResource TextSecondaryBrush}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <Button Style="{StaticResource PrimaryActionButtonStyle}" x:Name="InstallButton"
+                                        Content="安装内核" Click="Install_Click" />
+                                <Button Style="{StaticResource DangerActionButtonStyle}" x:Name="StopButton"
+                                        Content="结束联机" Click="Stop_Click" Visibility="Collapsed" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- ==================== 空闲：两条路一次摆明 ==================== -->
+                    <Grid x:Name="IdlePanel" ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <Border Style="{StaticResource PageCardStyle}">
+                            <StackPanel Spacing="10">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon FontFamily="{StaticResource IconFontFamily}" Glyph="&#xF5C7;" FontSize="16"
+                                              Foreground="{ThemeResource AccentBrush}" VerticalAlignment="Center" />
+                                    <TextBlock Text="我是房主" Style="{StaticResource CardTitleStyle}" VerticalAlignment="Center" />
+                                </StackPanel>
+                                <TextBlock Style="{StaticResource FieldHintStyle}" TextWrapping="Wrap"
+                                           Text="开一个房间，把房间码发给好友。好友连通后，你这边启动游戏即可一起进同一个世界。" />
+                                <Button Content="创建房间" Height="44" HorizontalAlignment="Stretch" Padding="18,0"
+                                        Background="{ThemeResource AccentBrush}" Foreground="{ThemeResource AccentOnBrush}"
+                                        BorderThickness="0" CornerRadius="6" FontSize="14" FontWeight="SemiBold"
+                                        Click="Host_Click" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Column="1" Style="{StaticResource PageCardStyle}">
+                            <StackPanel Spacing="10">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon FontFamily="{StaticResource IconFontFamily}" Glyph="&#xF181;" FontSize="16"
+                                              Foreground="{ThemeResource AccentBrush}" VerticalAlignment="Center" />
+                                    <TextBlock Text="我要加入" Style="{StaticResource CardTitleStyle}" VerticalAlignment="Center" />
+                                </StackPanel>
+                                <views:TextInput x:Name="JoinCodeBox" Recessed="True"
+                                                 FontFamily="Consolas, Cascadia Mono, Courier New"
+                                                 FontSize="15" PlaceholderText="U/XXXX-XXXX-XXXX-XXXX"
+                                                 TextAlignment="Center" />
+                                <Button Content="加入房间" Height="44" HorizontalAlignment="Stretch" Padding="18,0"
+                                        Background="{ThemeResource NeutralButtonBrush}"
+                                        Foreground="{ThemeResource NeutralButtonForegroundBrush}"
+                                        BorderThickness="0" CornerRadius="6" FontSize="14" FontWeight="SemiBold"
+                                        Click="Join_Click" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <!-- ==================== 房主：房间码就是主角 ==================== -->
+                    <Border x:Name="HostPanel" Style="{StaticResource PageCardStyle}" Visibility="Collapsed">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="房间码" Style="{StaticResource GroupLabelStyle}" />
+                            <Border Background="{ThemeResource RecessedBackgroundBrush}"
+                                    BorderBrush="{ThemeResource RecessedBorderBrush}" BorderThickness="1"
+                                    CornerRadius="8" Padding="20,18">
+                                <TextBlock x:Name="RoomCodeBox" FontFamily="Consolas, Cascadia Mono, Courier New"
+                                           FontSize="28" FontWeight="SemiBold"
+                                           Foreground="{ThemeResource TextPrimaryBrush}"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           TextAlignment="Center" Text="尚未创建房间" />
+                            </Border>
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Style="{StaticResource FieldHintStyle}" VerticalAlignment="Center" TextWrapping="Wrap"
+                                           Text="把房间码发给好友，让对方在「我要加入」里粘贴。本机已经在房间里，不要再点加入。" />
+                                <Button Grid.Column="1" Height="40" Padding="20,0" Click="CopyRoom_Click"
+                                        Background="{ThemeResource AccentBrush}" Foreground="{ThemeResource AccentOnBrush}"
+                                        BorderThickness="0" CornerRadius="6" FontSize="13" FontWeight="SemiBold">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <FontIcon FontFamily="{StaticResource IconFontFamily}" Glyph="&#xF32B;" FontSize="14"
+                                                  Foreground="{ThemeResource AccentOnBrush}" />
+                                        <TextBlock Text="复制房间码" />
+                                    </StackPanel>
+                                </Button>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- ==================== 已加入：给的是连接地址，不是房间码 ==================== -->
+                    <Border x:Name="GuestPanel" Style="{StaticResource PageCardStyle}" Visibility="Collapsed">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="连接地址" Style="{StaticResource GroupLabelStyle}" />
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <views:TextInput x:Name="JoinUrlBox" IsReadOnly="True" Recessed="True"
+                                                 PlaceholderText="加入成功后显示" />
+                                <Button Style="{StaticResource NeutralActionButtonStyle}" Grid.Column="1"
+                                        Content="复制" Click="CopyUrl_Click" />
+                                <Button Style="{StaticResource PrimaryActionButtonStyle}" Grid.Column="2"
+                                        Content="启动并加入" Click="LaunchJoin_Click" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 这行文案在三种状态下都会被代码改写，所以放在面板之外常驻 -->
+                    <TextBlock x:Name="JoinHintText" Style="{StaticResource FieldHintStyle}" TextWrapping="Wrap" />
+
+                    <!-- ==================== 成员：只有真的在房间里才占地方 ==================== -->
+                    <Border x:Name="MembersPanel" Style="{StaticResource PageCardStyle}" Visibility="Collapsed">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="房间成员" Style="{StaticResource SectionTitleStyle}" />
+                            <TextBlock x:Name="EmptyPlayersText" Text="还没有成员进来。" FontSize="12"
+                                       Foreground="{ThemeResource TextSecondaryBrush}" />
+                            <StackPanel x:Name="PlayerHost" Spacing="8" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- ==================== 侧栏：使用提示 ==================== -->
+                <StackPanel x:Name="SidePanel" Grid.Column="0" Grid.Row="1" Margin="0,12,0,0" Spacing="12">
+                    <Border Style="{StaticResource PageCardStyle}">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="怎么玩" Style="{StaticResource SectionTitleStyle}" />
+                            <TextBlock Style="{StaticResource FieldHintStyle}" TextWrapping="Wrap"
+                                       Text="1 · 房主点「创建房间」，把房间码发给好友。" />
+                            <TextBlock Style="{StaticResource FieldHintStyle}" TextWrapping="Wrap"
+                                       Text="2 · 好友粘贴房间码点「加入房间」，连通后点「启动并加入」。" />
+                            <TextBlock Style="{StaticResource FieldHintStyle}" TextWrapping="Wrap"
+                                       Text="3 · 房主也点启动，双方进的是同一个联机世界。" />
+                            <Border Style="{StaticResource CardDividerStyle}" />
+                            <TextBlock Style="{StaticResource FieldHintStyle}" TextWrapping="Wrap"
+                                       Text="与房主同名时启动器会自动加后缀，避免被游戏踢出。联机数据走 P2P / 中继，不依赖公网 IP，请确保双方网络畅通。" />
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Style="{StaticResource FieldHintStyle}" TextWrapping="Wrap"
+                               Text="Terracotta | 陶瓦联机 © burningtnt 与贡献者。本启动器通过 HTTP API 调用未修改的官方内核，联机数据走 P2P / 中继，不会替代 Minecraft 服务器。" />
+                </StackPanel>
+            </Grid>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

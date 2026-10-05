@@ -1,0 +1,322 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="XO_Launcher.Views.InstanceSettingsPanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:views="using:XO_Launcher.Views"
+    xmlns:local="using:XO_Launcher.Views">
+
+    <!-- ==================== 版本设置 ====================
+         重做要点：
+           · 左侧 196px 竖导航换成顶部页签条，和「设置」页 / 下载页同一套（SettingsTabButtonStyle），
+             三处导航的选中态、字号、高度从此一致，也不会出现「同一个应用两种导航」。
+           · 每条设置改成「标题 + 说明在左、控件在右」的行式版式（SettingRowStyle / SettingBlockStyle）。
+           · 「使用独立设置」是内存 / Java / 参数 / 窗口大小的唯一开关，原来只在基础页留一句话，
+             现在内存页与 Java 页顶部各有一条状态行：跟随全局时直说「本页数值暂不生效」并给一键启用。
+           · 六个目录入口原来是 6 张 66 高的大卡，压成一行 chip。 -->
+    <Grid Background="{ThemeResource AppBackgroundBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- ==================== 顶部：返回 / 版本名 / 保存 ==================== -->
+        <Border Grid.Row="0" Background="{ThemeResource SidebarBackgroundBrush}"
+                BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,0,0,1" Padding="20,10,20,10">
+            <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Button x:Name="BackButton" Background="Transparent" BorderThickness="0" Padding="4,0"
+                        VerticalAlignment="Center" Click="BackButton_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <FontIcon FontFamily="{StaticResource IconFontFamily}" Glyph="&#xF15B;" FontSize="14"
+                                  Foreground="{ThemeResource TextPrimaryBrush}" VerticalAlignment="Center" />
+                        <TextBlock Text="返回启动页" FontSize="13" Foreground="{ThemeResource TextPrimaryBrush}" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <TextBlock x:Name="HeaderTitle" Grid.Column="1" Text="版本设置" FontSize="15" FontWeight="SemiBold"
+                           Foreground="{ThemeResource TextPrimaryBrush}" VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis" />
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <TextBlock x:Name="SaveStateText" Style="{StaticResource SettingHintStyle}" MaxWidth="320"
+                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                    <Button x:Name="SaveButton" Style="{StaticResource PrimaryActionButtonStyle}" Content="保存设置"
+                            Click="SaveButton_Click" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ==================== 分组顶栏页签 ==================== -->
+        <Border x:Name="TabStrip" Grid.Row="1" BorderBrush="{ThemeResource DividerBrush}"
+                BorderThickness="0,0,0,1" Padding="12,6,12,6">
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                          HorizontalScrollMode="Enabled" VerticalScrollMode="Disabled">
+                <StackPanel Orientation="Horizontal" Spacing="2">
+                    <Button x:Name="NavBasicButton" Style="{StaticResource SettingsTabButtonStyle}" Content="基础" Click="NavBasic_Click" />
+                    <Button x:Name="NavModsButton" Style="{StaticResource SettingsTabButtonStyle}" Content="模组" Click="NavMods_Click" />
+                    <Button x:Name="NavShadersButton" Style="{StaticResource SettingsTabButtonStyle}" Content="光影" Click="NavShaders_Click" />
+                    <Button x:Name="NavPacksButton" Style="{StaticResource SettingsTabButtonStyle}" Content="资源包" Click="NavPacks_Click" />
+                    <Button x:Name="NavMemoryButton" Style="{StaticResource SettingsTabButtonStyle}" Content="内存" Click="NavMemory_Click" />
+                    <Button x:Name="NavJvmButton" Style="{StaticResource SettingsTabButtonStyle}" Content="Java 与参数" Click="NavJvm_Click" />
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+
+        <!-- ==================== 内容区 ==================== -->
+        <Grid Grid.Row="2">
+
+            <!-- 基础 -->
+            <ScrollViewer x:Name="BasicPage" VerticalScrollBarVisibility="Auto">
+                <StackPanel Spacing="14" Padding="24,18,24,24">
+
+                    <Border Style="{StaticResource PageCardStyle}" Padding="0">
+                        <StackPanel>
+                            <Grid Style="{StaticResource SettingRowStyle}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Spacing="2" VerticalAlignment="Center">
+                                    <TextBlock Text="版本名称" Style="{StaticResource SettingTitleStyle}" />
+                                    <TextBlock x:Name="FolderIdHint" Style="{StaticResource SettingHintStyle}" />
+                                </StackPanel>
+                                <views:TextInput Grid.Column="1" x:Name="DisplayNameBox" Width="300"
+                                                 VerticalAlignment="Center" PlaceholderText="游戏的名称" />
+                            </Grid>
+
+                            <Border Style="{StaticResource CardDividerStyle}" />
+
+                            <StackPanel Style="{StaticResource SettingBlockStyle}" Spacing="10">
+                                <TextBlock Text="版本图标" Style="{StaticResource SettingTitleStyle}" />
+                                <ScrollViewer HorizontalScrollBarVisibility="Auto" HorizontalScrollMode="Enabled"
+                                              VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
+                                    <ItemsControl x:Name="IconChoicesList">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <StackPanel Orientation="Horizontal" Spacing="8" />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                    </ItemsControl>
+                                </ScrollViewer>
+                                <TextBlock Style="{StaticResource SettingHintStyle}"
+                                           Text="「自动」按版本类型显示图标：正式版 = 草方块，快照版 = 命令方块，Fabric = 布料，Forge = 铁砧，NeoForge = 狐狸，Quilt = 旗帜。其余方块图标可自由选为该版本的图标。" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource PageCardStyle}" Padding="0">
+                        <Grid Style="{StaticResource SettingRowStyle}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Spacing="2" VerticalAlignment="Center">
+                                <TextBlock Text="使用独立设置" Style="{StaticResource SettingTitleStyle}" />
+                                <TextBlock Style="{StaticResource SettingHintStyle}"
+                                           Text="关闭时本版本的内存、Java、启动参数与窗口大小一律跟随「设置」里的全局选项。内存 / Java / 参数 / 窗口这几项只有开启后才生效；若你改了这些项却未开启，保存时会自动为你开启，避免白改。" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" x:Name="IndependentToggle" Style="{StaticResource SettingSwitchStyle}"
+                                          Toggled="IndependentToggle_Toggled" />
+                        </Grid>
+                    </Border>
+
+                    <!-- 基岩版说明（仅基岩版实例显示） -->
+                    <Border x:Name="BedrockHintPanel" Style="{StaticResource PageCardStyle}" Padding="0" Visibility="Collapsed">
+                        <StackPanel Style="{StaticResource SettingBlockStyle}" Spacing="10">
+                            <TextBlock Text="基岩版说明" Style="{StaticResource SettingTitleStyle}" />
+                            <TextBlock Style="{StaticResource SettingHintStyle}"
+                                       Text="基岩版不使用 Java。客户端按 BedrockBoot 方式下载 APPX 并注册到本机；专用服务器运行 versions 目录中的 bedrock_server.exe。" />
+                            <Button x:Name="OpenBedrockDataButton" Content="打开基岩版数据目录（com.mojang）"
+                                    Height="36" Padding="16,0" HorizontalAlignment="Left" FontSize="12"
+                                    Click="OpenBedrockData_Click" Background="{ThemeResource NeutralButtonBrush}"
+                                    Foreground="{ThemeResource NeutralButtonForegroundBrush}"
+                                    BorderThickness="0" CornerRadius="4" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource PageCardStyle}" Padding="0">
+                        <StackPanel Style="{StaticResource SettingBlockStyle}" Spacing="10">
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="快捷入口" Style="{StaticResource SettingTitleStyle}" />
+                                <TextBlock Style="{StaticResource SettingHintStyle}"
+                                           Text="直接打开本实例目录里的对应文件夹；模组 / 光影 / 资源包会按本版本的隔离规则解析到实际生效的位置。" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button Style="{StaticResource ChipButtonStyle}" Tag="screenshots" Content="截图" Click="OpenFolder_Click" />
+                                <Button Style="{StaticResource ChipButtonStyle}" Tag="saves" Content="存档" Click="OpenFolder_Click" />
+                                <Button Style="{StaticResource ChipButtonStyle}" Tag="mods" Content="模组" Click="OpenFolder_Click" />
+                                <Button Style="{StaticResource ChipButtonStyle}" Tag="shaderpacks" Content="光影" Click="OpenFolder_Click" />
+                                <Button Style="{StaticResource ChipButtonStyle}" Tag="resourcepacks" Content="资源包" Click="OpenFolder_Click" />
+                                <Button Style="{StaticResource ChipButtonStyle}" Tag="version" Content="版本目录" Click="OpenFolder_Click" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- 模组 / 光影 / 资源包：三块共用 InstanceContentPage -->
+            <Grid x:Name="ModsPage" Padding="24,18,24,20" Visibility="Collapsed">
+                <local:InstanceContentPage x:Name="ModsContent" />
+            </Grid>
+            <Grid x:Name="ShadersPage" Padding="24,18,24,20" Visibility="Collapsed">
+                <local:InstanceContentPage x:Name="ShadersContent" />
+            </Grid>
+            <Grid x:Name="PacksPage" Padding="24,18,24,20" Visibility="Collapsed">
+                <local:InstanceContentPage x:Name="PacksContent" />
+            </Grid>
+
+            <!-- 内存 -->
+            <ScrollViewer x:Name="MemoryPage" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+                <StackPanel Spacing="14" Padding="24,18,24,24">
+                    <Border Style="{StaticResource PageCardStyle}" Padding="0">
+                        <StackPanel>
+                            <Grid Style="{StaticResource SettingRowStyle}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Spacing="2" VerticalAlignment="Center">
+                                    <TextBlock Text="独立内存" Style="{StaticResource SettingTitleStyle}" />
+                                    <TextBlock x:Name="MemoryHintText" Style="{StaticResource SettingHintStyle}" />
+                                </StackPanel>
+                                <Button Grid.Column="1" x:Name="MemoryEnableButton" Style="{StaticResource PrimaryActionButtonStyle}"
+                                        Content="启用独立设置" VerticalAlignment="Center" Visibility="Collapsed"
+                                        Click="EnableIndependent_Click" />
+                            </Grid>
+
+                            <Border Style="{StaticResource CardDividerStyle}" />
+
+                            <StackPanel Style="{StaticResource SettingBlockStyle}" Spacing="8">
+                                <Grid>
+                                    <TextBlock Text="分配内存" Style="{StaticResource SettingTitleStyle}" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="MemoryValueText" Text="4096 MB" FontSize="12"
+                                               Foreground="{ThemeResource TextPrimaryBrush}" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                </Grid>
+                                <Slider x:Name="MemorySlider" Minimum="1024" Maximum="16384" Value="4096" StepFrequency="512"
+                                        HorizontalAlignment="Stretch" ValueChanged="MemorySlider_ValueChanged" />
+                                <TextBlock Style="{StaticResource SettingHintStyle}"
+                                           Text="建议给游戏留出系统所需内存。分配过高可能导致无法启动。" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Java 与启动参数 -->
+            <ScrollViewer x:Name="JvmPage" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+                <StackPanel Spacing="14" Padding="24,18,24,24">
+
+                    <Border Style="{StaticResource PageCardStyle}" Padding="0">
+                        <Grid Style="{StaticResource SettingRowStyle}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Spacing="2" VerticalAlignment="Center">
+                                <TextBlock Text="独立 Java 与参数" Style="{StaticResource SettingTitleStyle}" />
+                                <TextBlock x:Name="JvmHintText" Style="{StaticResource SettingHintStyle}" />
+                            </StackPanel>
+                            <Button Grid.Column="1" x:Name="JvmEnableButton" Style="{StaticResource PrimaryActionButtonStyle}"
+                                    Content="启用独立设置" VerticalAlignment="Center" Visibility="Collapsed"
+                                    Click="EnableIndependent_Click" />
+                        </Grid>
+                    </Border>
+
+                    <Border Style="{StaticResource PageCardStyle}" Padding="0">
+                        <StackPanel>
+                            <Grid Style="{StaticResource SettingRowStyle}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Spacing="2" VerticalAlignment="Center">
+                                    <TextBlock Text="按游戏版本自动匹配 Java" Style="{StaticResource SettingTitleStyle}" />
+                                    <TextBlock Style="{StaticResource SettingHintStyle}"
+                                               Text="开启后由启动器按版本要求挑 Java（如 1.20.5+ 需要 Java 21）。" />
+                                </StackPanel>
+                                <ToggleSwitch Grid.Column="1" x:Name="AutoMatchToggle" Style="{StaticResource SettingSwitchStyle}" />
+                            </Grid>
+
+                            <Border Style="{StaticResource CardDividerStyle}" />
+
+                            <StackPanel Style="{StaticResource SettingBlockStyle}" Spacing="8">
+                                <Grid ColumnSpacing="10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <views:SelectBox x:Name="JavaCombo" HorizontalAlignment="Stretch" PlaceholderText="选择已检测到的 Java" />
+                                    <Button Grid.Column="1" Style="{StaticResource NeutralActionButtonStyle}"
+                                            Content="浏览 javaw.exe…" Click="BrowseJava_Click" />
+                                </Grid>
+                                <TextBlock Style="{StaticResource SettingHintStyle}" Text="留空则跟随全局 Java。" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource PageCardStyle}" Padding="0">
+                        <StackPanel>
+                            <Grid Style="{StaticResource SettingRowStyle}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Spacing="2" VerticalAlignment="Center">
+                                    <TextBlock Text="窗口模式" Style="{StaticResource SettingTitleStyle}" />
+                                    <TextBlock Style="{StaticResource SettingHintStyle}"
+                                               Text="默认为游戏自带的 854×480 窗口；「最大化」会在游戏窗口显示后自动将其最大化。" />
+                                </StackPanel>
+                                <views:SelectBox Grid.Column="1" x:Name="WindowModeCombo" MinWidth="180" VerticalAlignment="Center"
+                                                 SelectionChanged="WindowModeCombo_SelectionChanged">
+                                    <views:SelectBox.Items>
+                                        <views:SelectBoxItem Content="默认" Tag="default" />
+                                        <views:SelectBoxItem Content="全屏" Tag="fullscreen" />
+                                        <views:SelectBoxItem Content="最大化" Tag="maximized" />
+                                        <views:SelectBoxItem Content="自定义" Tag="custom" />
+                                    </views:SelectBox.Items>
+                                </views:SelectBox>
+                            </Grid>
+
+                            <Border Style="{StaticResource CardDividerStyle}" />
+
+                            <StackPanel x:Name="WindowSizePanel" Style="{StaticResource SettingBlockStyle}"
+                                        Orientation="Horizontal" Spacing="8" Visibility="Collapsed">
+                                <views:TextInput x:Name="WidthBox" PlaceholderText="宽" Width="140" />
+                                <TextBlock Text="×" VerticalAlignment="Center" Foreground="{ThemeResource TextSecondaryBrush}" />
+                                <views:TextInput x:Name="HeightBox" PlaceholderText="高" Width="140" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource PageCardStyle}" Padding="0">
+                        <StackPanel>
+                            <StackPanel Style="{StaticResource SettingBlockStyle}" Spacing="6">
+                                <TextBlock Text="JVM 参数" Style="{StaticResource SettingTitleStyle}" FontSize="13" />
+                                <views:TextInput x:Name="JvmArgsBox"
+                                                 FontFamily="Consolas, Cascadia Mono, Courier New" FontSize="11"
+                                                 AcceptsReturn="True" TextWrapping="Wrap" MinHeight="72"
+                                                 VerticalAlignment="Stretch"
+                                                 PlaceholderText="一般情况下请勿修改，除非你知道你在做什么。" />
+                            </StackPanel>
+
+                            <Border Style="{StaticResource CardDividerStyle}" />
+
+                            <StackPanel Style="{StaticResource SettingBlockStyle}" Spacing="6">
+                                <TextBlock Text="游戏参数" Style="{StaticResource SettingTitleStyle}" FontSize="13" />
+                                <views:TextInput x:Name="GameArgsBox"
+                                                 FontFamily="Consolas, Cascadia Mono, Courier New" FontSize="11"
+                                                 AcceptsReturn="True" TextWrapping="Wrap" MinHeight="56"
+                                                 VerticalAlignment="Stretch"
+                                                 PlaceholderText="一般情况下请勿修改，除非你知道你在做什么。" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</UserControl>

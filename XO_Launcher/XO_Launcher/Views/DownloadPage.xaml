@@ -1,0 +1,199 @@
+﻿<UserControl
+    x:Class="XO_Launcher.Views.DownloadPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:models="using:XO_Launcher.Models"
+    xmlns:views="using:XO_Launcher.Views"
+    mc:Ignorable="d">
+
+    <UserControl.Resources>
+        <models:SlugToVisibilityConverter x:Key="SlugToVisibilityConverter" />
+        <models:HexToBrushConverter x:Key="HexToBrushConverter" />
+        <models:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+        <models:VersionTypeBrushConverter x:Key="VersionTypeBrushConverter" />
+
+        <!-- 分类顶栏页签。字号 13 → 14 与列表项标题(15)拉近一档，
+             顶栏高度靠 MinHeight 36 → 40 承接，避免文字变大后上下发紧。 -->
+        <Style x:Key="DownloadTabButtonStyle" TargetType="Button" BasedOn="{StaticResource AppButtonStyle}">
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+            <Setter Property="Padding" Value="16,0" />
+            <Setter Property="Margin" Value="0,0,2,0" />
+            <Setter Property="MinHeight" Value="40" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{ThemeResource TextPrimaryBrush}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="FontFamily" Value="{ThemeResource AppFontFamily}" />
+        </Style>
+    </UserControl.Resources>
+
+    <!-- 一级（资源列表）与二级（详情页）互斥：进入详情时 ListRegion 与 CategoryBar
+         整块折叠，详情页背景在全景模式下是透明的，不折叠就会让列表 UI 透出来。 -->
+    <Grid Background="{ThemeResource AppBackgroundBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- 分类顶栏 -->
+        <Border x:Name="CategoryBar" Grid.Row="0" Background="{ThemeResource SidebarBackgroundBrush}"
+                BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,0,0,1" Padding="20,10,20,8">
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                          HorizontalScrollMode="Enabled" VerticalScrollMode="Disabled">
+                <StackPanel Orientation="Horizontal" Spacing="2">
+                    <Button x:Name="VanillaButton" Tag="vanilla" Content="原版游戏" Style="{StaticResource DownloadTabButtonStyle}" />
+                    <Button x:Name="BedrockButton" Tag="bedrock" Content="基岩版" Style="{StaticResource DownloadTabButtonStyle}" />
+                    <Button x:Name="LoaderButton" Tag="loader" Content="模组加载器" Style="{StaticResource DownloadTabButtonStyle}" />
+                    <Rectangle Width="1" Fill="{ThemeResource DividerBrush}" Margin="8,8" />
+                    <Button x:Name="ModsButton" Tag="mod" Content="模组" Style="{StaticResource DownloadTabButtonStyle}" />
+                    <Button x:Name="ShadersButton" Tag="shader" Content="光影" Style="{StaticResource DownloadTabButtonStyle}" />
+                    <Button x:Name="ResourcePacksButton" Tag="resourcepack" Content="资源包" Style="{StaticResource DownloadTabButtonStyle}" />
+                    <Button x:Name="ModpacksButton" Tag="modpack" Content="整合包" Style="{StaticResource DownloadTabButtonStyle}" />
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+
+        <!-- 资源列表 -->
+        <Grid x:Name="ListRegion" Grid.Row="1" Padding="24,18,24,16">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <Grid>
+                <StackPanel>
+                    <TextBlock x:Name="PageTitle" Text="原版游戏" FontSize="24" FontWeight="SemiBold" Foreground="{ThemeResource TextPrimaryBrush}" />
+                    <TextBlock x:Name="PageSubtitle" Text="从 Mojang 官方清单获取 Minecraft Java 版本" FontSize="13" Foreground="{ThemeResource TextSecondaryBrush}" Margin="0,6,0,0" />
+                </StackPanel>
+                <TextBlock x:Name="SourceStatus" Text="正在连接资源平台..." FontSize="12" Foreground="{ThemeResource TextSecondaryBrush}" HorizontalAlignment="Right" VerticalAlignment="Center" />
+            </Grid>
+
+            <ListView Grid.Row="1" x:Name="ItemsList" SelectionMode="None" IsItemClickEnabled="True"
+                      HorizontalContentAlignment="Stretch"
+                      ItemClick="ItemsGrid_ItemClick" Loaded="ItemsList_Loaded">
+                <!-- 页头容器默认内容对齐可能是 Left，会把搜索栏压成内容宽度，这里强制撑满 -->
+                <ListView.Header>
+                    <!-- 搜索栏与筛选：放进列表页头（而不是固定在列表上方），
+                         这样它们会随列表内容一起滚走 -->
+                    <StackPanel HorizontalAlignment="Stretch" Margin="0,22,0,18" Spacing="12">
+                        <views:SearchBox x:Name="SearchBox" PlaceholderText="搜索版本、模组、光影或资源包…" />
+                        <StackPanel x:Name="VanillaFilterPanel" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">
+                            <Button x:Name="FilterAllButton" Content="全部" Tag="all" Style="{StaticResource ChipButtonStyle}" Click="VanillaFilter_Click" />
+                            <Button x:Name="FilterReleaseButton" Content="正式版" Tag="release" Style="{StaticResource ChipButtonStyle}" Click="VanillaFilter_Click" />
+                            <Button x:Name="FilterSnapshotButton" Content="快照" Tag="snapshot" Style="{StaticResource ChipButtonStyle}" Click="VanillaFilter_Click" />
+                            <Button x:Name="FilterLegacyButton" Content="远古" Tag="legacy" Style="{StaticResource ChipButtonStyle}" Click="VanillaFilter_Click" />
+                            <TextBlock x:Name="VanillaCountText" FontSize="13" Foreground="{ThemeResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="8,0,0,0" />
+                        </StackPanel>
+                        <StackPanel x:Name="BedrockFilterPanel" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">
+                            <Button x:Name="BedrockFilterAllButton" Content="全部" Tag="all" Style="{StaticResource ChipButtonStyle}" Click="BedrockFilter_Click" />
+                            <Button x:Name="BedrockFilterGameButton" Content="游戏" Tag="game" Style="{StaticResource ChipButtonStyle}" Click="BedrockFilter_Click" />
+                            <Button x:Name="BedrockFilterServerButton" Content="服务器" Tag="server" Style="{StaticResource ChipButtonStyle}" Click="BedrockFilter_Click" />
+                            <Button x:Name="BedrockFilterPreviewButton" Content="预览" Tag="preview" Style="{StaticResource ChipButtonStyle}" Click="BedrockFilter_Click" />
+                            <TextBlock x:Name="BedrockCountText" FontSize="13" Foreground="{ThemeResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="8,0,0,0" />
+                        </StackPanel>
+                        <StackPanel x:Name="ResourceFilterPanel" Spacing="8" Visibility="Collapsed">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button x:Name="SourceModrinthButton" Content="Modrinth" Tag="modrinth" Style="{StaticResource ChipButtonStyle}" Click="SourceButton_Click" />
+                                <Button x:Name="SourceCurseForgeButton" Content="CurseForge" Tag="curseforge" Style="{StaticResource ChipButtonStyle}" Click="SourceButton_Click" />
+                                <Rectangle Width="1" Height="16" Fill="{ThemeResource DividerBrush}" VerticalAlignment="Center" Margin="4,0" />
+                                <Button x:Name="SortRelevanceButton" Content="相关性" Tag="relevance" Style="{StaticResource ChipButtonStyle}" Click="SortButton_Click" />
+                                <Button x:Name="SortDownloadsButton" Content="下载量" Tag="downloads" Style="{StaticResource ChipButtonStyle}" Click="SortButton_Click" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="分类" FontSize="13" Foreground="{ThemeResource TextSecondaryBrush}" VerticalAlignment="Center" />
+                                <views:SelectBox x:Name="CategoryBox" Compact="True" MinWidth="180"
+                                                 DisplayMemberPath="Name" SelectionChanged="CategoryBox_SelectionChanged" />
+                            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
+                </ListView.Header>
+                <ListView.ItemContainerStyle>
+                    <Style TargetType="ListViewItem">
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        <Setter Property="HorizontalAlignment" Value="Stretch" />
+                        <Setter Property="Padding" Value="0" />
+                        <Setter Property="Margin" Value="0,0,0,4" />
+                        <Setter Property="MinHeight" Value="0" />
+                    </Style>
+                </ListView.ItemContainerStyle>
+                <ListView.ItemTemplate>
+                    <DataTemplate>
+                        <!-- 卡片态不加载、也不显示背景图（悬停背景已移除）。 -->
+                        <!-- 行高 48 → 56：字号上调后（标题 15 / 辅助 13）48 会挤，
+                             56 = 标题行高 19.8 + 辅助行高 17.2 + 上下各约 9 的呼吸。 -->
+                        <Border Style="{StaticResource PageCardStyle}" HorizontalAlignment="Stretch" Height="56" Padding="0">
+                            <Grid ColumnSpacing="12" Padding="12,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Grid Width="30" Height="30" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding IconText}" FontSize="13" FontWeight="SemiBold"
+                                               Foreground="{ThemeResource TextSecondaryBrush}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Visibility="{Binding HasIcon, Converter={StaticResource BoolToVisibilityConverter}, ConverterParameter=invert}" />
+                                    <Image Source="{Binding Icon}" Stretch="Uniform" />
+                                </Grid>
+                                <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="15" FontWeight="SemiBold"
+                                           VerticalAlignment="Center"
+                                           Foreground="{Binding Converter={StaticResource VersionTypeBrushConverter}, ConverterParameter=title}"
+                                           TextTrimming="CharacterEllipsis" MaxWidth="220" />
+                                <TextBlock Grid.Column="2" Text="{Binding Badge}" FontSize="13" VerticalAlignment="Center"
+                                           Foreground="{Binding VersionType, Converter={StaticResource VersionTypeBrushConverter}}" />
+                                <!-- 支持版本位：原版=可用加载器，模组/光影/资源包=适配的游戏版本（互斥，见 DownloadItem.SupportText） -->
+                                <TextBlock Grid.Column="3" Text="{Binding SupportText}" FontSize="13"
+                                           VerticalAlignment="Center" Foreground="{ThemeResource AccentBrush}"
+                                           TextTrimming="CharacterEllipsis"
+                                           Visibility="{Binding HasSupportText, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                <TextBlock Grid.Column="4" Text="{Binding Meta}" FontSize="13" Foreground="{ThemeResource TextTertiaryBrush}"
+                                           VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="5" Text="详情" FontSize="13" Foreground="{ThemeResource AccentBrush}"
+                                           VerticalAlignment="Center"
+                                           Visibility="{Binding HasDetail, Converter={StaticResource BoolToVisibilityConverter}}" />
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+                <ListView.Footer>
+                    <Grid x:Name="LoadMoreFooter" Padding="0,4,0,12" Visibility="Collapsed">
+                        <Button x:Name="LoadMoreButton" HorizontalAlignment="Stretch" Height="36"
+                                Background="{ThemeResource CardBackgroundBrush}" Foreground="{ThemeResource TextPrimaryBrush}"
+                                BorderBrush="{ThemeResource DividerBrush}" BorderThickness="1" CornerRadius="8"
+                                Click="LoadMoreButton_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                                <ProgressRing x:Name="LoadMoreRing" Width="16" Height="16" IsActive="False" Visibility="Collapsed" />
+                                <TextBlock x:Name="LoadMoreText" Text="加载更多" FontSize="14" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+                </ListView.Footer>
+            </ListView>
+
+            <!-- 加载态装进小卡片（样式见 App.xaml LoadingCardStyle）：x:Name 打在外层 Border 上，
+                 代码切 Visibility 时整张卡一起消失，不会留下一块空卡。 -->
+            <Border Grid.Row="1" x:Name="LoadingPanel" Style="{StaticResource LoadingCardStyle}">
+                <StackPanel Spacing="12">
+                    <ProgressRing IsActive="True" Width="34" Height="34" Foreground="{ThemeResource AccentBrush}"
+                                  HorizontalAlignment="Center" />
+                    <TextBlock Text="正在加载资源..." Foreground="{ThemeResource TextSecondaryBrush}" FontSize="13"
+                               HorizontalAlignment="Center" />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- mod 详情页覆盖层 -->
+        <Grid x:Name="DetailOverlay" Grid.RowSpan="2" Background="{ThemeResource AppBackgroundBrush}" Visibility="Collapsed">
+            <views:ModDetailPage x:Name="DetailPage" />
+            <views:VanillaDetailPage x:Name="VanillaDetail" Visibility="Collapsed" />
+            <views:BedrockDetailPage x:Name="BedrockDetail" Visibility="Collapsed" />
+        </Grid>
+    </Grid>
+</UserControl>

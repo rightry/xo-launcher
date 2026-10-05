@@ -1,0 +1,40 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="XO_Launcher.Views.MicrosoftLoginOverlay"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid Background="{ThemeResource AppBackgroundBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid Padding="24,14,24,8">
+            <Button Background="Transparent" BorderThickness="0" Padding="0" HorizontalAlignment="Left"
+                    Click="Cancel_Click">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon FontFamily="{StaticResource IconFontFamily}" Glyph="&#xF15B;" FontSize="14" Foreground="{ThemeResource TextPrimaryBrush}" VerticalAlignment="Center" />
+                    <TextBlock Text="返回设置" FontSize="13" Foreground="{ThemeResource TextPrimaryBrush}" VerticalAlignment="Center" />
+                </StackPanel>
+            </Button>
+            <TextBlock Text="微软正版登录" FontSize="13" Foreground="{ThemeResource TextSecondaryBrush}"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Grid>
+
+        <!-- 登录等待态装进小卡片（App.xaml LoadingCardStyle）：本页底色是 AppBackgroundBrush，
+             全景模式下它是全透明的，裸字会直接压在背景图上读不清。 -->
+        <Border Grid.Row="1" Style="{StaticResource LoadingCardStyle}" MaxWidth="470">
+            <StackPanel Spacing="16">
+                <ProgressRing IsActive="True" Width="36" Height="36" Foreground="{ThemeResource AccentBrush}"
+                              HorizontalAlignment="Center" />
+                <TextBlock Text="已打开系统浏览器" FontSize="18" FontWeight="SemiBold"
+                           Foreground="{ThemeResource TextPrimaryBrush}" HorizontalAlignment="Center" />
+                <TextBlock x:Name="StatusText" FontSize="13" Foreground="{ThemeResource TextSecondaryBrush}"
+                           TextWrapping="Wrap" TextAlignment="Center"
+                           Text="请在浏览器中完成微软登录，完成后会自动返回启动器。不会在软件内输入账号密码。" />
+                <Button Style="{StaticResource NeutralActionButtonStyle}" Content="取消登录" HorizontalAlignment="Center" Click="Cancel_Click" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

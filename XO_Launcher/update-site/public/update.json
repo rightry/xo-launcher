@@ -1,8 +1,0 @@
-{
-  "version": "1.0.0",
-  "notes": "当前为基准版本。发布新版时提高 version，并把 url 改成安装包直链。",
-  "url": "",
-  "fileName": "XO_Launcher.zip",
-  "pageUrl": "https://github.com/rightry/XO_Launcher_vs/releases",
-  "size": 0
-}
